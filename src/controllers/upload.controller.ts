@@ -26,12 +26,23 @@ const storage = multer.diskStorage({
     }
 });
 
-// File filter (Images only)
+// File filter (Images, Docs, Audio, Video)
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-    if (file.mimetype.startsWith('image/')) {
+    const allowedTypes = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+
+    if (
+        file.mimetype.startsWith('image/') ||
+        file.mimetype.startsWith('audio/') ||
+        file.mimetype.startsWith('video/') ||
+        allowedTypes.includes(file.mimetype)
+    ) {
         cb(null, true);
     } else {
-        cb(new Error('Solo se permiten archivos de imagen'));
+        cb(new Error('Tipo de archivo no permitido. Solo imágenes, audio, video, PDF y Word.'));
     }
 };
 
@@ -39,7 +50,7 @@ export const upload = multer({
     storage: storage,
     fileFilter: fileFilter,
     limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB limit
+        fileSize: 16 * 1024 * 1024 // 16MB limit to match Twilio
     }
 });
 
