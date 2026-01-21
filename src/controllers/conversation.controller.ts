@@ -139,3 +139,26 @@ export const markAsRead = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Failed to mark as read' });
     }
 };
+/**
+ * Update conversation status (open/closed)
+ */
+export const updateStatus = async (req: Request, res: Response) => {
+    try {
+        const id = req.params.id as string;
+        const { status } = req.body;
+
+        if (!['open', 'closed'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status. Must be open or closed' });
+        }
+
+        await prisma.conversation.update({
+            where: { id },
+            data: { status }
+        });
+
+        res.json({ success: true, status });
+    } catch (error) {
+        console.error('Error updating status:', error);
+        res.status(500).json({ error: 'Failed to update status' });
+    }
+};

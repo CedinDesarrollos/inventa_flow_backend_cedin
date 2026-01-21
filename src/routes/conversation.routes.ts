@@ -3,7 +3,8 @@ import {
     getConversations,
     getConversationMessages,
     sendMessage,
-    markAsRead
+    markAsRead,
+    updateStatus
 } from '../controllers/conversation.controller';
 
 const router = Router();
@@ -19,5 +20,8 @@ router.post('/:id/messages', sendMessage);
 
 // PATCH /api/conversations/:id/read - Mark conversation as read
 router.patch('/:id/read', markAsRead);
+
+// PATCH /api/conversations/:id/status - Update conversation status
+router.patch('/:id/status', updateStatus);
 
 export default router;
