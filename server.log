@@ -1,0 +1,24 @@
+Using connection string: postgresql://postgres:khgThtdDwVCtiIwDtHyMmURxXHuilicS@shinkansen.proxy.rlwy.net:53757/railway?schema=inventa_clinical_app
+Using options: -c search_path=inventa_clinical_app
+/Users/jorgejararuiz/Library/CloudStorage/OneDrive-Personal/Antigravity/InventaFlow/backend/node_modules/ts-node/src/index.ts:859
+    return new TSError(diagnosticText, diagnosticCodes, diagnostics);
+           ^
+TSError: ⨯ Unable to compile TypeScript:
+src/controllers/professional.controller.ts(102,66): error TS2339: Property 'email' does not exist on type 'never'.
+src/controllers/professional.controller.ts(104,30): error TS2339: Property 'email' does not exist on type 'never'.
+src/controllers/professional.controller.ts(105,30): error TS2339: Property 'name' does not exist on type 'never'.
+src/controllers/professional.controller.ts(106,30): error TS2339: Property 'username' does not exist on type 'never'.
+src/controllers/professional.controller.ts(107,30): error TS2339: Property 'tempPass' does not exist on type 'never'.
+
+    at createTSError (/Users/jorgejararuiz/Library/CloudStorage/OneDrive-Personal/Antigravity/InventaFlow/backend/node_modules/ts-node/src/index.ts:859:12)
+    at reportTSError (/Users/jorgejararuiz/Library/CloudStorage/OneDrive-Personal/Antigravity/InventaFlow/backend/node_modules/ts-node/src/index.ts:863:19)
+    at getOutput (/Users/jorgejararuiz/Library/CloudStorage/OneDrive-Personal/Antigravity/InventaFlow/backend/node_modules/ts-node/src/index.ts:1077:36)
+    at Object.compile (/Users/jorgejararuiz/Library/CloudStorage/OneDrive-Personal/Antigravity/InventaFlow/backend/node_modules/ts-node/src/index.ts:1433:41)
+    at Module.m._compile (/Users/jorgejararuiz/Library/CloudStorage/OneDrive-Personal/Antigravity/InventaFlow/backend/node_modules/ts-node/src/index.ts:1617:30)
+    at node:internal/modules/cjs/loader:1893:10
+    at Object.require.extensions.<computed> [as .ts] (/Users/jorgejararuiz/Library/CloudStorage/OneDrive-Personal/Antigravity/InventaFlow/backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14) {
+  diagnosticCodes: [ 2339, 2339, 2339, 2339, 2339 ]
+}

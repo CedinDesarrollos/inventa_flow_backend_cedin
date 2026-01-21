@@ -1,0 +1,23 @@
+import { Router } from 'express';
+import {
+    getConversations,
+    getConversationMessages,
+    sendMessage,
+    markAsRead
+} from '../controllers/conversation.controller';
+
+const router = Router();
+
+// GET /api/conversations - List all conversations
+router.get('/', getConversations);
+
+// GET /api/conversations/:id/messages - Get messages for a conversation
+router.get('/:id/messages', getConversationMessages);
+
+// POST /api/conversations/:id/messages - Send a message
+router.post('/:id/messages', sendMessage);
+
+// PATCH /api/conversations/:id/read - Mark conversation as read
+router.patch('/:id/read', markAsRead);
+
+export default router;
