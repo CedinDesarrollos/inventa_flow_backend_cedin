@@ -22,16 +22,39 @@ export class MediaDownloadService {
             password: process.env.TWILIO_AUTH_TOKEN!
         };
 
-        // Step 1: Request the URL from Twilio with redirects disabled
-        // We do this to get the S3 redirect URL without automatically following it with credentials
+        // Step 0: Debug - Fetch Metadata first to verify resource existence
+        // This helps us distinguish between 'Image not found' and 'Redirect failed'
+        try {
+            console.log(`🔍 Checking media metadata: ${mediaUrl}.json`);
+            await axios.get(`${mediaUrl}.json`, { auth });
+            console.log('✅ Media metadata found. Resource exists.');
+        } catch (error: any) {
+            console.error('❌ Failed to fetch media metadata:', error.response?.status, error.message);
+            if (error.response?.status === 404) {
+                throw new Error('Media resource not found on Twilio (404)');
+            }
+        }
+
+        // Step 1: Request the binary URL from Twilio with redirects disabled
+        console.log(`⬇️  Starting download for: ${mediaUrl}`);
         const initialResponse = await axios.get(mediaUrl, {
             auth,
             maxRedirects: 0,
-            validateStatus: (status) => status >= 200 && status < 400
+            validateStatus: (status) => status >= 200 && status < 400,
+            headers: {
+                'User-Agent': 'Node.js/InventaFlow',
+                'Accept': '*/*'
+            }
         });
 
         let downloadUrl = mediaUrl;
-        let downloadConfig: any = { responseType: 'arraybuffer' };
+        let downloadConfig: any = {
+            responseType: 'arraybuffer',
+            headers: {
+                'User-Agent': 'Node.js/InventaFlow',
+                'Accept': '*/*'
+            }
+        };
 
         // Step 2: Check if we got a redirect (Twilio usually returns 307 to S3)
         if (initialResponse.status >= 300 && initialResponse.status < 400 && initialResponse.headers.location) {
@@ -39,31 +62,19 @@ export class MediaDownloadService {
             // IMPORTANT: Do NOT include 'auth' for the S3 URL, as it causes 403 Forbidden
             console.log('🔄 Following redirect to S3 (stripping credentials)...');
         } else {
-            // If no redirect, use the initial response data if it's the file itself
-            // But usually Twilio redirects. If we somehow got the file directly, return it.
+            console.log(`ℹ️  No redirect received (Status: ${initialResponse.status}). Attempting direct download.`);
             if (initialResponse.data) {
-                // Determine subdirectory and extension
-                const subdir = this.getSubdirectory(mediaType);
-                const ext = this.getExtension(mediaType);
-                const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`;
-
-                // Create directory if it doesn't exist
-                const fullDir = path.join(this.uploadDir, 'messages', subdir);
-                if (!fs.existsSync(fullDir)) {
-                    fs.mkdirSync(fullDir, { recursive: true });
-                }
-
-                // Save file
-                const localPath = path.join(fullDir, filename);
-                // content might be buffer or string depending on axios config, 
-                // but we didn't set arraybuffer on first call. 
-                // Let's rely on the second call pattern for consistency unless strictly needed.
-                // Re-downloading from same URL if no redirect is safer to ensure arraybuffer.
-                downloadConfig = { auth, responseType: 'arraybuffer' };
+                // If we got data directly (rare for Twilio Media), use it
+                // We need to handle this case carefully if responseType wasn't arraybuffer
+                // Ideally we re-request to ensure consistency
+                downloadConfig = { ...downloadConfig, auth };
+            } else {
+                // Prepare to download from original URL if no redirect
+                downloadConfig = { ...downloadConfig, auth };
             }
         }
 
-        // Step 3: Download the actual file (from S3 or Twilio)
+        // Step 3: Download the actual file
         const response = await axios.get(downloadUrl, downloadConfig);
 
         // Determine subdirectory and extension
