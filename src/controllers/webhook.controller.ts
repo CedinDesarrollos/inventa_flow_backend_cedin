@@ -12,6 +12,11 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
 
         console.log('📩 Incoming Twilio webhook:', { From, Body, NumMedia, ButtonPayload });
 
+        if (!From) {
+            console.warn('⚠️ Received webhook without "From" field');
+            return res.status(400).send('Missing From field');
+        }
+
         const phoneNumber = From.replace('whatsapp:', '').replace('+', '');
 
         // Find patient by phone
