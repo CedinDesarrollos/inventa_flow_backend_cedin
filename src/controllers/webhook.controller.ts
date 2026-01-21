@@ -20,7 +20,7 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
         const phoneNumber = From.replace('whatsapp:', '').replace('+', '');
 
         // Find patient by phone
-        const patient = await prisma.patient.findFirst({
+        let patient = await prisma.patient.findFirst({
             where: {
                 phone: {
                     contains: phoneNumber
@@ -29,8 +29,17 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
         });
 
         if (!patient) {
-            console.warn(`⚠️  Received message from unknown number: ${phoneNumber}`);
-            return res.status(200).send('OK');
+            console.log(`🆕 Creating new LEAD for unknown number: ${phoneNumber}`);
+
+            // Create new "Lead" patient
+            patient = await prisma.patient.create({
+                data: {
+                    firstName: "Usuario",
+                    lastName: "Nuevo",
+                    phone: phoneNumber,
+                    identifier: `LEAD-${phoneNumber}`, // Unique identifier
+                }
+            });
         }
 
         // Find or create conversation
@@ -46,6 +55,17 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
                     status: 'open'
                 }
             });
+
+            // Add "Nuevo Paciente" tag for new leads
+            if (patient.identifier.startsWith('LEAD-')) {
+                await prisma.conversationTag.create({
+                    data: {
+                        conversationId: conversation.id,
+                        tag: 'Nuevo Paciente'
+                    }
+                });
+            }
+
             console.log(`✅ Created conversation for ${patient.firstName} ${patient.lastName}`);
         }
 
