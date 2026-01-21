@@ -34,8 +34,15 @@ const port = process.env.PORT || 3000;
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" } // Allow loading images from different origin/port
 }));
-app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+origin: (origin, callback) => {
+    const allowed = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(o => o.trim());
+    if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+    } else {
+        console.warn(`Blocked by CORS: ${origin}. Allowed: ${allowed.join(', ')}`);
+        callback(new Error('Not allowed by CORS'));
+    }
+},
     credentials: true
 }));
 app.use(express.json());
