@@ -50,7 +50,8 @@ export const uploadFile = (req: Request, res: Response) => {
         }
 
         // Construct public URL
-        const baseUrl = process.env.API_URL || 'http://localhost:3000'; // Fallback or env
+        // Use API_URL env var or fallback to request values (reliable with trust proxy)
+        const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
         // Note: We will serve 'public/uploads' at '/uploads' endpoint
         const fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
 

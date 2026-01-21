@@ -29,6 +29,9 @@ import webhookRoutes from './routes/webhook.routes';
 // ... (existing imports)
 
 const app = express();
+// Enable trust proxy for Railway (to get correct protocol/host)
+app.set('trust proxy', 1);
+
 const port = process.env.PORT || 3000;
 
 app.use(helmet({
