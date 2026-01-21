@@ -40,14 +40,22 @@ export class TwilioProvider implements IWhatsAppProvider {
             messageData.body = message;
             if (mediaUrl) {
                 // If mediaUrl is local, convert to full URL
-                const fullMediaUrl = mediaUrl.startsWith('http')
+                let fullMediaUrl = mediaUrl.startsWith('http')
                     ? mediaUrl
                     : `${process.env.API_URL || 'http://localhost:3000'}${mediaUrl}`;
+
+                // FORCE HTTPS if we are on a production-like domain (not localhost)
+                // This fixes issues where req.protocol might be http behind proxy but Twilio requires https
+                if (fullMediaUrl.startsWith('http:') && !fullMediaUrl.includes('localhost')) {
+                    fullMediaUrl = fullMediaUrl.replace('http:', 'https:');
+                }
+
                 messageData.mediaUrl = [fullMediaUrl];
             }
         }
 
         try {
+            console.log('🚀 Sending to Twilio:', JSON.stringify(messageData, null, 2));
             const result = await this.client.messages.create(messageData);
             console.log(`✅ Message sent via Twilio: ${result.sid}`);
             return {
@@ -55,7 +63,12 @@ export class TwilioProvider implements IWhatsAppProvider {
                 messageId: result.sid
             };
         } catch (error: any) {
-            console.error('❌ Twilio send error:', error.message);
+            console.error('❌ Twilio send error Details:', {
+                code: error.code,
+                message: error.message,
+                moreInfo: error.moreInfo,
+                status: error.status
+            });
             return {
                 success: false,
                 error: error.message
