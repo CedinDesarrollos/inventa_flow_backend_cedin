@@ -42,7 +42,7 @@ export class TwilioProvider implements IWhatsAppProvider {
                 // If mediaUrl is local, convert to full URL
                 let fullMediaUrl = mediaUrl.startsWith('http')
                     ? mediaUrl
-                    : `${process.env.API_URL || 'http://localhost:3000'}${mediaUrl}`;
+                    : `${process.env.PUBLIC_URL || process.env.API_URL || 'http://localhost:3000'}${mediaUrl}`;
 
                 // FORCE HTTPS if we are on a production-like domain (not localhost)
                 // This fixes issues where req.protocol might be http behind proxy but Twilio requires https

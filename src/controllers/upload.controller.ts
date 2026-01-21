@@ -50,8 +50,8 @@ export const uploadFile = (req: Request, res: Response) => {
         }
 
         // Construct public URL
-        // Use API_URL env var or fallback to request values (reliable with trust proxy)
-        const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+        // Priority: PUBLIC_URL (External/Twilio) -> API_URL (Internal) -> Request Host (Dynamic)
+        const baseUrl = process.env.PUBLIC_URL || process.env.API_URL || `${req.protocol}://${req.get('host')}`;
         // Note: We will serve 'public/uploads' at '/uploads' endpoint
         const fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
 
