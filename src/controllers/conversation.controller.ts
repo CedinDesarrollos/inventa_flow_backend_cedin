@@ -30,6 +30,7 @@ export const getConversations = async (req: Request, res: Response) => {
             id: conv.id,
             patientId: conv.patient.id,
             patientName: `${conv.patient.firstName} ${conv.patient.lastName}`,
+            patientPhone: conv.patient.phone,
             channel: conv.channel,
             status: conv.status,
             unreadCount: conv.unreadCount,
