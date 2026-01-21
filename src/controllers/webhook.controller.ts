@@ -59,27 +59,44 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
 
         // Handle multimedia
         if (parseInt(NumMedia || '0') > 0) {
-            const mediaService = new MediaDownloadService();
-            const { publicUrl, size } = await mediaService.downloadTwilioMedia(
-                MediaUrl0,
-                MediaContentType0
-            );
+            try {
+                const mediaService = new MediaDownloadService();
+                const { publicUrl, size } = await mediaService.downloadTwilioMedia(
+                    MediaUrl0,
+                    MediaContentType0
+                );
 
-            await prisma.conversationMessage.create({
-                data: {
-                    conversationId: conversation.id,
-                    content: Body || '(Archivo adjunto)',
-                    type: getMessageType(MediaContentType0),
-                    sender: 'patient',
-                    mediaUrl: publicUrl,
-                    mediaType: MediaContentType0,
-                    mediaSize: size,
-                    externalUrl: MediaUrl0,
-                    status: 'delivered'
-                }
-            });
+                await prisma.conversationMessage.create({
+                    data: {
+                        conversationId: conversation.id,
+                        content: Body || '(Archivo adjunto)',
+                        type: getMessageType(MediaContentType0),
+                        sender: 'patient',
+                        mediaUrl: publicUrl,
+                        mediaType: MediaContentType0,
+                        mediaSize: size,
+                        externalUrl: MediaUrl0,
+                        status: 'delivered'
+                    }
+                });
 
-            console.log(`✅ Saved multimedia message: ${publicUrl}`);
+                console.log(`✅ Saved multimedia message: ${publicUrl}`);
+            } catch (mediaError) {
+                console.error('❌ Failed to download media:', mediaError);
+
+                // Fallback: Save as text message with error note and external URL
+                await prisma.conversationMessage.create({
+                    data: {
+                        conversationId: conversation.id,
+                        content: Body || `(Error descargando archivo: ${MediaContentType0})`,
+                        type: 'text',
+                        sender: 'patient',
+                        status: 'delivered',
+                        externalUrl: MediaUrl0
+                    }
+                });
+                console.log(`⚠️ Saved fallback text message due to media error`);
+            }
         } else {
             // Text message
             await prisma.conversationMessage.create({
