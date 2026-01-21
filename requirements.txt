@@ -1,9 +1,0 @@
-flask
-flask-cors
-flask-sqlalchemy
-flask-migrate
-flask-login
-python-dotenv
-psycopg2-binary
-gunicorn
-marshmallow
