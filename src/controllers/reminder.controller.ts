@@ -23,6 +23,9 @@ export const getReminderStats = async (req: Request, res: Response) => {
             case 'month':
                 startDate = now.startOf('month');
                 break;
+            case 'all':
+                startDate = DateTime.fromJSDate(new Date(0)); // Start of epoch
+                break;
             default:
                 startDate = now.startOf('day');
         }
