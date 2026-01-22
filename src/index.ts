@@ -27,6 +27,7 @@ import conversationRoutes from './routes/conversation.routes';
 import webhookRoutes from './routes/webhook.routes';
 import reminderRoutes from './routes/reminder.routes';
 import { startReminderCron } from './jobs/reminderCron';
+import { initBirthdayCron } from './jobs/birthdayCron';
 
 // ... (existing imports)
 
@@ -111,6 +112,9 @@ app.listen(port, () => {
 
     // Start appointment reminder cron job
     startReminderCron();
+
+    // Start birthday cron job
+    initBirthdayCron();
 });
 
 process.on('SIGTERM', async () => {
