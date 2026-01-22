@@ -69,7 +69,7 @@ export class ReminderService {
                         lte: endOfTomorrow.toJSDate()
                     },
                     status: {
-                        in: ['SCHEDULED', 'CONFIRMED', 'PENDING']
+                        in: ['SCHEDULED', 'CONFIRMED']
                     },
                     reminders: {
                         none: {
@@ -105,7 +105,7 @@ export class ReminderService {
                     lte: targetEnd.toJSDate()
                 },
                 status: {
-                    in: ['SCHEDULED', 'CONFIRMED', 'PENDING']
+                    in: ['SCHEDULED', 'CONFIRMED']
                 },
                 reminders: {
                     none: {
