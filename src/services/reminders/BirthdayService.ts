@@ -36,7 +36,6 @@ export class BirthdayService {
         // But for this scale, in-memory filtering is safer and cleaner
         const allPatients = await prisma.patient.findMany({
             where: {
-                status: 'ACTIVE',
                 phone: { not: null },
                 birthDate: { not: null }
             },
