@@ -25,6 +25,8 @@ import medicalVisitRoutes from './routes/medical-visit.routes';
 import reportsRoutes from './routes/reports.routes';
 import conversationRoutes from './routes/conversation.routes';
 import webhookRoutes from './routes/webhook.routes';
+import reminderRoutes from './routes/reminder.routes';
+import { startReminderCron } from './jobs/reminderCron';
 
 // ... (existing imports)
 
@@ -86,6 +88,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/medical-visits', medicalVisitRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/reminders', reminderRoutes);
 
 // Health Check
 app.get('/api/health', (req, res) => {
@@ -105,6 +108,9 @@ app.get('/api/db-check', async (req, res) => {
 
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
+
+    // Start appointment reminder cron job
+    startReminderCron();
 });
 
 process.on('SIGTERM', async () => {
