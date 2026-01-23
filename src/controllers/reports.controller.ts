@@ -286,7 +286,7 @@ export const getReminderStats = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Invalid date format' });
         }
 
-        // Fetch appointments in range
+        // 1. Fetch Appointments (Agenda Universe)
         const appointments = await prisma.appointment.findMany({
             where: {
                 date: {
@@ -300,19 +300,32 @@ export const getReminderStats = async (req: Request, res: Response) => {
             }
         });
 
-        // Calculate Stats
-        // We assume "Sent" is roughly equal to appointments (minus manual excludes, but for now this is a good proxy)
-        // Or better: We assume every appointment got a reminder if the system is on.
-        // A more accurate way would be querying a 'ReminderLog' table if we had one.
-        // For now, we infer response from Status.
+        // 2. Fetch Actual Sent Reminders (Action Universe)
+        // We look for reminders linked to the appointments in the range. 
+        // This is more accurate than just date range on reminders because it links effort to the specific appointment slot.
+        const appointmentIds = appointments.map(a => a.id);
 
+        let sentRemindersCount = 0;
+        if (appointmentIds.length > 0) {
+            sentRemindersCount = await prisma.appointmentReminder.count({
+                where: {
+                    appointmentId: { in: appointmentIds },
+                    status: {
+                        in: ['sent', 'delivered', 'read', 'confirmed', 'cancelled', 'rescheduled'] // successfully sent statuses
+                    }
+                }
+            });
+        }
+
+        // 3. Calculate Outcomes based on Appointment Status
         const stats = {
-            total: appointments.length,
+            totalAppointments: appointments.length,
+            totalSent: sentRemindersCount,
             confirmed: 0,
             cancelled: 0,
             rescheduled: 0,
-            pending: 0, // No response / Scheduled
-            attended: 0 // Completed/Billed (implies confirmation usually)
+            pending: 0,
+            attended: 0
         };
 
         appointments.forEach(app => {
@@ -323,20 +336,22 @@ export const getReminderStats = async (req: Request, res: Response) => {
             else if (s === 'COMPLETED' || s === 'BILLED' || s === 'IN_PROGRESS') stats.attended++;
         });
 
-        // Group "Positive Outcome" vs "Negative"
-        // Attended is implicitly confirmed.
         const effectiveConfirmed = stats.confirmed + stats.attended;
 
         res.json({
-            total: stats.total,
+            totalAppointments: stats.totalAppointments,
+            totalSent: stats.totalSent,
             distribution: {
                 confirmed: effectiveConfirmed,
                 cancelled: stats.cancelled,
                 pending: stats.pending
             },
             rates: {
-                confirmationRate: stats.total > 0 ? Math.round((effectiveConfirmed / stats.total) * 100) : 0,
-                cancellationRate: stats.total > 0 ? Math.round((stats.cancelled / stats.total) * 100) : 0
+                // Rate over Total Appointments (General Efficiency)
+                confirmationRate: stats.totalAppointments > 0 ? Math.round((effectiveConfirmed / stats.totalAppointments) * 100) : 0,
+                cancellationRate: stats.totalAppointments > 0 ? Math.round((stats.cancelled / stats.totalAppointments) * 100) : 0,
+                // Coverage (Sent / Total)
+                coverageRate: stats.totalAppointments > 0 ? Math.round((stats.totalSent / stats.totalAppointments) * 100) : 0
             }
         });
 
