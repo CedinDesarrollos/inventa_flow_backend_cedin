@@ -25,7 +25,8 @@ const registerSchema = z.object({
 
 const loginSchema = z.object({
     identifier: z.string(),
-    password: z.string()
+    password: z.string(),
+    rememberMe: z.boolean().optional()
 });
 
 
@@ -77,7 +78,7 @@ export const register = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
     try {
-        const { identifier, password } = loginSchema.parse(req.body);
+        const { identifier, password, rememberMe } = loginSchema.parse(req.body);
 
         const user = await prisma.user.findFirst({
             where: {
@@ -101,7 +102,7 @@ export const login = async (req: Request, res: Response) => {
         const token = jwt.sign(
             { userId: user.id, role: user.role, email: user.email },
             JWT_SECRET,
-            { expiresIn: '24h' }
+            { expiresIn: rememberMe ? '12h' : '4h' }
         );
 
         res.json({
