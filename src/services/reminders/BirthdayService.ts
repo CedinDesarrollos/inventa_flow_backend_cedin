@@ -114,6 +114,16 @@ export class BirthdayService {
                 return;
             }
 
+            // Check if specific campaign is enabled
+            const campaign = await prisma.automationCampaign.findUnique({
+                where: { key: 'birthday_greetings' }
+            });
+
+            if (!campaign || !campaign.isEnabled) {
+                console.log('⏸️  Birthday campaign is explicitly DISABLED. Skipping.');
+                return;
+            }
+
             const patients = await this.findBirthdayPatients();
             console.log(`📋 Found ${patients.length} patients with birthday today`);
 

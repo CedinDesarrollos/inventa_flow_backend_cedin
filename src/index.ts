@@ -26,6 +26,7 @@ import reportsRoutes from './routes/reports.routes';
 import conversationRoutes from './routes/conversation.routes';
 import webhookRoutes from './routes/webhook.routes';
 import reminderRoutes from './routes/reminder.routes';
+import automationRoutes from './routes/automation.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { initBirthdayCron } from './jobs/birthdayCron';
 
@@ -90,6 +91,7 @@ app.use('/api/medical-visits', medicalVisitRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/reminders', reminderRoutes);
+app.use('/api/automations', automationRoutes);
 
 // Health Check
 app.get('/api/health', (req, res) => {

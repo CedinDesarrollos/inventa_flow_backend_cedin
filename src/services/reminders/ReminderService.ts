@@ -266,6 +266,16 @@ export class ReminderService {
                 return;
             }
 
+            // Check if specific campaign is enabled
+            const campaign = await prisma.automationCampaign.findUnique({
+                where: { key: 'appointment_reminders' }
+            });
+
+            if (!campaign || !campaign.isEnabled) {
+                console.log('⏸️  Appointment Reminders campaign is explicitly DISABLED. Skipping.');
+                return;
+            }
+
             console.log('✅ Reminders are ENABLED. Proceeding with send...');
 
             const appointments = await this.findEligibleAppointments();

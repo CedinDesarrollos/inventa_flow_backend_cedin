@@ -494,3 +494,16 @@ model ConversationTag {
   @@map("conversation_tags")
   @@schema("inventa_clinical_app")
 }
+
+model AutomationCampaign {
+  id          String   @id @default(uuid())
+  key         String   @unique // 'appointment_reminders' | 'birthday_greetings'
+  name        String
+  description String?
+  isEnabled   Boolean  @default(false) @map("is_enabled")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("automation_campaigns")
+  @@schema("inventa_clinical_app")
+}
