@@ -18,7 +18,7 @@ export class AutomationController {
 
     // PATCH /api/automations/:key
     async toggle(req: Request, res: Response) {
-        const { key } = req.params;
+        const { key } = req.params as { key: string };
         const { isEnabled } = req.body;
 
         if (typeof isEnabled !== 'boolean') {
