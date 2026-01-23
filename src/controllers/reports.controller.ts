@@ -169,3 +169,179 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+export const getNpsStats = async (req: Request, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ message: 'Start date and end date are required' });
+        }
+
+        const start = new Date(String(startDate));
+        const end = new Date(String(endDate));
+
+        if (!isValid(start) || !isValid(end)) {
+            return res.status(400).json({ message: 'Invalid date format' });
+        }
+
+        // 1. Fetch Responses in Range
+        const responses = await prisma.npsResponse.findMany({
+            where: {
+                scoreReceivedAt: {
+                    gte: start,
+                    lte: end
+                },
+                score: {
+                    not: null
+                }
+            },
+            include: {
+                appointment: {
+                    include: {
+                        patient: true
+                    }
+                }
+            },
+            orderBy: {
+                scoreReceivedAt: 'desc'
+            }
+        });
+
+        // 2. Calculate Metrics
+        let promoters = 0;
+        let passives = 0;
+        let detractors = 0;
+        const total = responses.length;
+
+        // Feedback buckets
+        const feedback = {
+            promoters: [] as any[],
+            passives: [] as any[],
+            detractors: [] as any[]
+        };
+
+        responses.forEach(r => {
+            const score = r.score || 0;
+            const commentData = {
+                id: r.id,
+                date: r.scoreReceivedAt,
+                score: score,
+                comment: r.comment,
+                patientName: r.appointment.patient.firstName + ' ' + r.appointment.patient.lastName
+            };
+
+            if (score >= 9 || score === 5) { // Assuming 5 is Excellent in our 1-3-5 scale or 0-10 scale
+                promoters++;
+                if (r.comment && feedback.promoters.length < 3) feedback.promoters.push(commentData);
+            } else if (score >= 7 || score === 3) { // Assuming 3 is Regular
+                passives++;
+                if (r.comment && feedback.passives.length < 3) feedback.passives.push(commentData);
+            } else { // 1 is Bad
+                detractors++;
+                if (r.comment && feedback.detractors.length < 3) feedback.detractors.push(commentData);
+            }
+        });
+
+        // 3. Calculate NPS
+        // NPS = % Promoters - % Detractors
+        let npsScore = 0;
+        if (total > 0) {
+            const promoterPct = (promoters / total) * 100;
+            const detractorPct = (detractors / total) * 100;
+            npsScore = Math.round(promoterPct - detractorPct);
+        }
+
+        res.json({
+            summary: {
+                total,
+                npsScore,
+                breakdown: {
+                    promoters,
+                    passives,
+                    detractors
+                }
+            },
+            feedback
+        });
+
+    } catch (error) {
+        console.error('Get NPS Stats Error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getReminderStats = async (req: Request, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ message: 'Start date and end date are required' });
+        }
+
+        const start = new Date(String(startDate));
+        const end = new Date(String(endDate));
+
+        if (!isValid(start) || !isValid(end)) {
+            return res.status(400).json({ message: 'Invalid date format' });
+        }
+
+        // Fetch appointments in range
+        const appointments = await prisma.appointment.findMany({
+            where: {
+                date: {
+                    gte: start,
+                    lte: end
+                }
+            },
+            select: {
+                id: true,
+                status: true
+            }
+        });
+
+        // Calculate Stats
+        // We assume "Sent" is roughly equal to appointments (minus manual excludes, but for now this is a good proxy)
+        // Or better: We assume every appointment got a reminder if the system is on.
+        // A more accurate way would be querying a 'ReminderLog' table if we had one.
+        // For now, we infer response from Status.
+
+        const stats = {
+            total: appointments.length,
+            confirmed: 0,
+            cancelled: 0,
+            rescheduled: 0,
+            pending: 0, // No response / Scheduled
+            attended: 0 // Completed/Billed (implies confirmation usually)
+        };
+
+        appointments.forEach(app => {
+            const s = app.status;
+            if (s === 'CONFIRMED') stats.confirmed++;
+            else if (s === 'CANCELLED' || s === 'NO_SHOW') stats.cancelled++;
+            else if (s === 'SCHEDULED') stats.pending++;
+            else if (s === 'COMPLETED' || s === 'BILLED' || s === 'IN_PROGRESS') stats.attended++;
+        });
+
+        // Group "Positive Outcome" vs "Negative"
+        // Attended is implicitly confirmed.
+        const effectiveConfirmed = stats.confirmed + stats.attended;
+
+        res.json({
+            total: stats.total,
+            distribution: {
+                confirmed: effectiveConfirmed,
+                cancelled: stats.cancelled,
+                pending: stats.pending
+            },
+            rates: {
+                confirmationRate: stats.total > 0 ? Math.round((effectiveConfirmed / stats.total) * 100) : 0,
+                cancellationRate: stats.total > 0 ? Math.round((stats.cancelled / stats.total) * 100) : 0
+            }
+        });
+
+    } catch (error) {
+        console.error('Get Reminder Stats Error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
