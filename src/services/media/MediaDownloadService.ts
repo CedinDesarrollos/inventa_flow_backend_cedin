@@ -12,43 +12,49 @@ export class MediaDownloadService {
     /**
      * Downloads multimedia from Twilio and saves it locally
      */
+    /**
+     * Downloads multimedia from Twilio and saves it locally with retry logic and robust redirect handling
+     */
     async downloadTwilioMedia(mediaUrl: string, mediaType: string): Promise<{
         localPath: string;
         publicUrl: string;
         size: number;
     }> {
+        const MAX_RETRIES = 3;
+        let lastError;
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                if (attempt > 1) {
+                    console.log(`⚠️ Retry attempt ${attempt}/${MAX_RETRIES} for ${mediaUrl}`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+                }
+
+                return await this.executeDownload(mediaUrl, mediaType);
+            } catch (error: any) {
+                console.error(`❌ Download failed (Attempt ${attempt}):`, error.message);
+                lastError = error;
+            }
+        }
+
+        throw lastError || new Error('Failed to download media after multiple attempts');
+    }
+
+    private async executeDownload(mediaUrl: string, mediaType: string) {
         const auth = {
             username: process.env.TWILIO_ACCOUNT_SID!,
             password: process.env.TWILIO_AUTH_TOKEN!
         };
 
-        // Step 0: Debug - Fetch Metadata first to verify resource existence
-        // This helps us distinguish between 'Image not found' and 'Redirect failed'
-        try {
-            console.log(`🔍 Checking media metadata: ${mediaUrl}.json`);
-            await axios.get(`${mediaUrl}.json`, { auth });
-            console.log('✅ Media metadata found. Resource exists.');
-        } catch (error: any) {
-            console.error('❌ Failed to fetch media metadata:', error.response?.status, error.message);
-            if (error.response?.status === 404) {
-                throw new Error('Media resource not found on Twilio (404)');
-            }
-        }
+        console.log(`⬇️ Starting smart download for: ${mediaUrl}`);
 
-        // Step 1: Request the binary URL from Twilio with redirects disabled
-        console.log(`⬇️  Starting download for: ${mediaUrl}`);
-        const initialResponse = await axios.get(mediaUrl, {
-            auth,
-            maxRedirects: 0,
-            validateStatus: (status) => status >= 200 && status < 400,
-            headers: {
-                'User-Agent': 'Node.js/InventaFlow',
-                'Accept': '*/*'
-            }
-        });
+        // Step 1: Resolve the final URL (handling redirects intelligently)
+        const finalUrl = await this.resolveFinalUrl(mediaUrl, auth);
+        const isTwilio = finalUrl.includes('twilio.com');
 
-        let downloadUrl = mediaUrl;
-        let downloadConfig: any = {
+        // Step 2: Download the actual file
+        // If it's still a Twilio URL after resolution, we keep auth. If it's S3/other, we drop it.
+        const downloadConfig: any = {
             responseType: 'arraybuffer',
             headers: {
                 'User-Agent': 'Node.js/InventaFlow',
@@ -56,45 +62,28 @@ export class MediaDownloadService {
             }
         };
 
-        // Step 2: Check if we got a redirect (Twilio usually returns 307 to S3)
-        if (initialResponse.status >= 300 && initialResponse.status < 400 && initialResponse.headers.location) {
-            downloadUrl = initialResponse.headers.location;
-            // IMPORTANT: Do NOT include 'auth' for the S3 URL, as it causes 403 Forbidden
-            console.log('🔄 Following redirect to S3 (stripping credentials)...');
+        if (isTwilio) {
+            downloadConfig.auth = auth;
         } else {
-            console.log(`ℹ️  No redirect received (Status: ${initialResponse.status}). Attempting direct download.`);
-            if (initialResponse.data) {
-                // If we got data directly (rare for Twilio Media), use it
-                // We need to handle this case carefully if responseType wasn't arraybuffer
-                // Ideally we re-request to ensure consistency
-                downloadConfig = { ...downloadConfig, auth };
-            } else {
-                // Prepare to download from original URL if no redirect
-                downloadConfig = { ...downloadConfig, auth };
-            }
+            console.log('ℹ️ Downloading from external storage (S3/Other) without Twilio Auth');
         }
 
-        // Step 3: Download the actual file
-        const response = await axios.get(downloadUrl, downloadConfig);
+        const response = await axios.get(finalUrl, downloadConfig);
 
-        // Determine subdirectory and extension
+        // Save file
         const subdir = this.getSubdirectory(mediaType);
         const ext = this.getExtension(mediaType);
         const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`;
 
-        // Create directory if it doesn't exist
         const fullDir = path.join(this.uploadDir, 'messages', subdir);
         if (!fs.existsSync(fullDir)) {
             fs.mkdirSync(fullDir, { recursive: true });
         }
 
-        // Save file
         const localPath = path.join(fullDir, filename);
         fs.writeFileSync(localPath, response.data);
 
-        // Generate public URL
         const publicUrl = `/uploads/messages/${subdir}/${filename}`;
-
         console.log(`✅ Media downloaded: ${publicUrl} (${response.data.length} bytes)`);
 
         return {
@@ -102,6 +91,59 @@ export class MediaDownloadService {
             publicUrl,
             size: response.data.length
         };
+    }
+
+    /**
+     * Follows redirects while managing authentication headers
+     * - Keeps Auth for twilio.com domains
+     * - Drops Auth for external domains (like S3)
+     */
+    private async resolveFinalUrl(initialUrl: string, auth: any): Promise<string> {
+        let currentUrl = initialUrl;
+        let redirectCount = 0;
+        const MAX_REDIRECTS = 5;
+
+        while (redirectCount < MAX_REDIRECTS) {
+            const isTwilio = currentUrl.includes('twilio.com');
+            const config: any = {
+                maxRedirects: 0,
+                validateStatus: (status: number) => status >= 200 && status < 400,
+                headers: { 'User-Agent': 'Node.js/InventaFlow' }
+            };
+
+            if (isTwilio) {
+                config.auth = auth;
+            }
+
+            try {
+                const response = await axios.get(currentUrl, config);
+
+                // If 200 OK, this is the final URL (or it successfully returned content)
+                if (response.status === 200) {
+                    return currentUrl;
+                }
+
+                // If Redirect
+                if (response.status >= 300 && response.status < 400 && response.headers.location) {
+                    const nextUrl = response.headers.location;
+                    console.log(`wm Redirecting: ...${currentUrl.slice(-20)} -> ...${nextUrl.slice(-20)}`);
+                    currentUrl = nextUrl;
+                    redirectCount++;
+                } else {
+                    // Unknown state
+                    return currentUrl;
+                }
+            } catch (error: any) {
+                // If it fails, we might just try to return the current URL and hope the final download works
+                // or throw if it's a 404
+                if (error.response?.status === 404) {
+                    throw new Error(`Resource not found: ${currentUrl}`);
+                }
+                throw error;
+            }
+        }
+
+        return currentUrl;
     }
 
     private getSubdirectory(mimeType: string): string {

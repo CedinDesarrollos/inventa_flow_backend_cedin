@@ -50,7 +50,7 @@ export const upload = multer({
     storage: storage,
     fileFilter: fileFilter,
     limits: {
-        fileSize: 16 * 1024 * 1024 // 16MB limit to match Twilio
+        fileSize: 50 * 1024 * 1024 // 50MB to match global limit
     }
 });
 
