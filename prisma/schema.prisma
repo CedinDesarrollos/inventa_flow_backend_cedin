@@ -182,6 +182,7 @@ model Appointment {
   patient            Patient               @relation(fields: [patientId], references: [id])
   service            Service?              @relation(fields: [serviceId], references: [id])
   reminders          AppointmentReminder[]
+  npsResponse        NpsResponse?
 
   @@map("appointments")
   @@schema("inventa_clinical_app")
@@ -505,5 +506,25 @@ model AutomationCampaign {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("automation_campaigns")
+  @@schema("inventa_clinical_app")
+}
+
+model NpsResponse {
+  id               String    @id @default(uuid())
+  appointmentId    String    @map("appointment_id")
+  patientPhone     String    @map("patient_phone")
+  score            Int?      // 1 (Mala) | 3 (Regular) | 5 (Excelente)
+  comment          String?   @db.Text
+  status           String    @default("PENDING_SCORE") // PENDING_SCORE | PENDING_COMMENT | COMPLETED
+  expiresAt        DateTime? @map("expires_at")
+  sentAt           DateTime  @default(now()) @map("sent_at")
+  scoreReceivedAt  DateTime? @map("score_received_at")
+  commentReceivedAt DateTime? @map("comment_received_at")
+  
+  appointment      Appointment @relation(fields: [appointmentId], references: [id])
+  
+  @@unique([appointmentId])
+  @@index([patientPhone, status])
+  @@map("nps_responses")
   @@schema("inventa_clinical_app")
 }

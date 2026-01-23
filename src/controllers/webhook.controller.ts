@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { MediaDownloadService } from '../services/media/MediaDownloadService';
 import { NotificationService } from '../services/notifications/NotificationService';
+import { NpsService } from '../services/nps/NpsService';
 
 /**
  * Handle incoming messages from Twilio
@@ -18,6 +19,18 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
         }
 
         const phoneNumber = From.replace('whatsapp:', '').replace('+', '');
+
+        // 0. Intercept NPS Responses (Priority)
+        const npsService = new NpsService();
+        const npsPayload = ButtonPayload || Body;
+        const isButton = !!ButtonPayload;
+
+        const isNpsInteraction = await npsService.handleIncomingMessage(phoneNumber, npsPayload, isButton);
+
+        if (isNpsInteraction) {
+            console.log(`📊 Intercepted NPS interaction from ${phoneNumber}`);
+            return res.status(200).send('OK (NPS Handled)');
+        }
 
         // Find patient by phone
         let patient = await prisma.patient.findFirst({

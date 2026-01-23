@@ -29,6 +29,7 @@ import reminderRoutes from './routes/reminder.routes';
 import automationRoutes from './routes/automation.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { initBirthdayCron } from './jobs/birthdayCron';
+import { initNpsCron } from './jobs/npsCron';
 
 // ... (existing imports)
 
@@ -117,6 +118,9 @@ app.listen(port, () => {
 
     // Start birthday cron job
     initBirthdayCron();
+
+    // Start NPS cron job
+    initNpsCron();
 });
 
 process.on('SIGTERM', async () => {

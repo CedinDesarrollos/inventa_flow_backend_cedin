@@ -15,6 +15,12 @@ async function main() {
             name: 'Saludos de Cumpleaños',
             description: 'Envío automático de saludos de cumpleaños a las 10:00 AM.',
             isEnabled: false
+        },
+        {
+            key: 'nps_post_appointment',
+            name: 'Encuesta NPS (Post-Atención)',
+            description: 'Envío automático de encuesta de satisfacción 2 horas después de la cita.',
+            isEnabled: true
         }
     ];
 
