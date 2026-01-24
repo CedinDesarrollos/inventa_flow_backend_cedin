@@ -277,10 +277,19 @@ export const mergePatients = async (req: Request, res: Response) => {
 
             // 9. Transfer LID logic
             const updateData: any = {};
-            if (source.lid) {
-                // Remove LID from source first to avoid unique constraint
-                await tx.patient.update({ where: { id }, data: { lid: null } as any });
-                updateData.lid = source.lid;
+
+            // If source has explicit LID, or if it's a LEAD (auth by phone) use phone as LID
+            let lidToTransfer = source.lid;
+            if (!lidToTransfer && source.identifier.startsWith('LEAD-')) {
+                lidToTransfer = source.phone;
+            }
+
+            if (lidToTransfer) {
+                // If source had explicit LID, clear it first
+                if (source.lid) {
+                    await tx.patient.update({ where: { id }, data: { lid: null } as any });
+                }
+                updateData.lid = lidToTransfer;
             }
 
             if (Object.keys(updateData).length > 0) {

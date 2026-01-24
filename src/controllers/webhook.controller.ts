@@ -51,6 +51,7 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
                     lastName: "Nuevo",
                     phone: phoneNumber,
                     identifier: `LEAD-${phoneNumber}`, // Unique identifier
+                    lid: phoneNumber // Store WhatsApp ID as LID
                 }
             });
         }
