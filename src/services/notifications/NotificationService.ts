@@ -254,6 +254,12 @@ export class NotificationService {
 
                 console.log(`💬 [BAILEYS CONTENT] Type: ${msgType}, Content: "${content}"`);
 
+                // Ignore if it's a protocol message or has no content and no media
+                if (!content && msgType === 'text' && !msg.message?.imageMessage && !msg.message?.audioMessage) {
+                    console.log('⏭️ Skipping: Empty or protocol message');
+                    continue;
+                }
+
                 // We only save incoming messages from others
                 if (fromMe) {
                     console.log('⏭️ Skipping save: Message is from me');
@@ -343,10 +349,14 @@ export class NotificationService {
     }
 
     private getBaileysMessageType(message: any): string {
-        if (message?.imageMessage) return 'image';
-        if (message?.audioMessage) return 'audio';
-        if (message?.videoMessage) return 'video';
-        if (message?.documentMessage) return 'document';
+        if (!message) return 'text';
+        // Handle nested messages
+        const m = message.message || message;
+        if (m.imageMessage) return 'image';
+        if (m.audioMessage) return 'audio';
+        if (m.videoMessage) return 'video';
+        if (m.documentMessage) return 'document';
+        if (m.stickerMessage) return 'sticker';
         return 'text';
     }
 
