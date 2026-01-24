@@ -210,70 +210,53 @@ export class NotificationService {
             if (!messages || messages.length === 0) return;
 
             for (const msg of messages) {
-                // Log the key structure to debug
-                console.log('📝 Message Key:', JSON.stringify(msg.key));
-
-                // Extract JID
                 const remoteJid = msg.key.remoteJid;
-                if (!remoteJid) {
-                    console.log('⏭️ Skipping: No remoteJid');
-                    continue;
-                }
-
-                // Focus on direct messages for now (exclude groups if any)
-                if (!remoteJid.endsWith('@s.whatsapp.net')) {
-                    console.log(`⏭️ Skipping non-personal JID: ${remoteJid}`);
-                    continue;
-                }
-
-                // If it's from me, we might still want to log it but maybe not save it as patient message
-                if (msg.key.fromMe) {
-                    console.log('⏭️ Skipping: Message from ME (outgoing from phone)');
-                    continue;
-                }
+                if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
 
                 // Extract digits only for robust matching
-                const remoteNumber = remoteJid.split('@')[0];
-                const phoneDigits = remoteNumber.replace(/\D/g, '');
+                const phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
 
-                console.log(`📥 Processing Baileys message from ${remoteNumber}`);
-
-                // Extract message content with more robust check
-                const getMessageBody = (m: any) => {
+                // Deep extract content
+                const extractContent = (m: any): string => {
                     if (!m) return '';
-                    if (m.conversation) return m.conversation;
-                    if (m.extendedTextMessage?.text) return m.extendedTextMessage.text;
-                    if (m.imageMessage?.caption) return m.imageMessage.caption;
-                    if (m.videoMessage?.caption) return m.videoMessage.caption;
-                    if (m.documentMessage?.caption) return m.documentMessage.caption;
-                    return '';
+                    return m.conversation ||
+                        m.extendedTextMessage?.text ||
+                        m.imageMessage?.caption ||
+                        m.videoMessage?.caption ||
+                        m.documentMessage?.caption ||
+                        m.templateButtonReplyMessage?.selectedDisplayText ||
+                        m.buttonsResponseMessage?.selectedDisplayText ||
+                        (m.imageMessage ? '(Imagen)' : '') ||
+                        (m.audioMessage ? '(Audio)' : '') ||
+                        (m.videoMessage ? '(Video)' : '') ||
+                        (m.documentMessage ? '(Documento)' : '') ||
+                        '';
                 };
 
-                const content = getMessageBody(msg.message);
+                const content = extractContent(msg.message);
                 const msgType = this.getBaileysMessageType(msg.message);
 
-                console.log(`💬 Message Content: "${content}", Type: ${msgType}`);
+                console.log(`📥 [BAILEYS] Msg from ${phoneDigits}: "${content}" (Type: ${msgType}, fromMe: ${msg.key.fromMe})`);
 
-                // Skip if no content and not media
-                if (!content && msgType === 'text') {
-                    console.log('⏭️ Skipping empty message');
-                    continue;
-                }
+                // Ignore if it's from me (clinic sending from phone)
+                if (msg.key.fromMe) continue;
 
-                // Find patient by phone - flexible matching
+                if (!content && msgType === 'text') continue;
+
+                // Find patient by phone - Match last 9 digits (more common length)
                 let patient = await prisma.patient.findFirst({
                     where: {
                         phone: {
-                            contains: phoneDigits.slice(-8) // Match last 8 digits for flexibility
+                            contains: phoneDigits.length >= 9 ? phoneDigits.slice(-9) : phoneDigits
                         }
                     }
                 });
 
                 if (!patient) {
-                    console.log(`🆕 Creating auto-LEAD for unknown number: ${phoneDigits}`);
+                    console.log(`🆕 Creating LEAD for unknown number: ${phoneDigits}`);
                     patient = await prisma.patient.create({
                         data: {
-                            firstName: "WhatsApp User",
+                            firstName: "Usuario WhatsApp",
                             lastName: phoneDigits,
                             phone: phoneDigits,
                             identifier: `LEAD-BA-${phoneDigits}`,
@@ -296,15 +279,11 @@ export class NotificationService {
                     });
                 }
 
-                // Check if message already exists (avoid duplicates from re-connection)
+                // Check for duplicates
                 const exists = await prisma.conversationMessage.findFirst({
                     where: { externalId: msg.key.id }
                 });
-
-                if (exists) {
-                    console.log(`⏭️ Message ${msg.key.id} already exists, skipping.`);
-                    continue;
-                }
+                if (exists) continue;
 
                 // Save message
                 await prisma.conversationMessage.create({
@@ -319,7 +298,7 @@ export class NotificationService {
                     }
                 });
 
-                // Update conversation last message timestamp
+                // Update conversation
                 await prisma.conversation.update({
                     where: { id: conversation.id },
                     data: {
@@ -328,7 +307,7 @@ export class NotificationService {
                     }
                 });
 
-                console.log(`✅ Saved incoming Baileys message into conversation ${conversation.id}`);
+                console.log(`✅ [BAILEYS] Message saved for ${patient.firstName}`);
             }
         } catch (error) {
             console.error('❌ Error processing Baileys message:', error);
