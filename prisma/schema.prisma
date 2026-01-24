@@ -24,11 +24,12 @@ model User {
   appointments          Appointment[]
   records               ClinicalRecord[]
   templates             Template[]
+  medicalVisits         MedicalVisit[]
   schedules             ProfessionalSchedule[]
   professional          Professional?
   processedTransactions Transaction[]          @relation("TransactionAuthor")
   doctorTransactions    Transaction[]          @relation("TransactionDoctor")
-  medicalVisits         MedicalVisit[]
+  messages              ConversationMessage[]
 
   @@map("users")
   @@schema("inventa_clinical_app")
@@ -50,8 +51,8 @@ model Professional {
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
   isActive           Boolean  @default(true) @map("is_active")
-  gender             String? // 'M' | 'F' | 'Other'
-  prefix             String? // 'el Dr.' | 'la Dra.' | 'el Odontólogo' | 'la Odontóloga'
+  gender             String?
+  prefix             String?
   user               User     @relation(fields: [userId], references: [id])
 
   @@map("professionals")
@@ -74,8 +75,8 @@ model Branch {
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   appointments  Appointment[]
-  patients      Patient[]
   medicalVisits MedicalVisit[]
+  patients      Patient[]
 
   @@map("branches")
   @@schema("inventa_clinical_app")
@@ -98,12 +99,12 @@ model Patient {
   medicalHistory  Json?            @map("medical_history")
   appointments    Appointment[]
   clinicalRecords ClinicalRecord[]
+  conversations   Conversation[]
   tags            PatientTag[]
   branch          Branch?          @relation(fields: [branchId], references: [id])
   insurance       Insurance?       @relation(fields: [insuranceId], references: [id])
   prescriptions   Prescription[]
   transactions    Transaction[]
-  conversations   Conversation[]
 
   @@map("patients")
   @@schema("inventa_clinical_app")
@@ -177,11 +178,11 @@ model Appointment {
   externalId         String?               @map("external_id")
   legacy_tipoReserva String?               @map("legacy_tipo_reserva")
   secretaryNote      String?               @map("secretary_note")
+  reminders          AppointmentReminder[]
   branch             Branch?               @relation(fields: [branchId], references: [id])
   doctor             User?                 @relation(fields: [doctorId], references: [id])
   patient            Patient               @relation(fields: [patientId], references: [id])
   service            Service?              @relation(fields: [serviceId], references: [id])
-  reminders          AppointmentReminder[]
   npsResponse        NpsResponse?
 
   @@map("appointments")
@@ -189,18 +190,17 @@ model Appointment {
 }
 
 model AppointmentReminder {
-  id               String    @id @default(uuid())
-  appointmentId    String    @map("appointment_id")
-  sentAt           DateTime? @map("sent_at")
-  status           String    @default("pending") // 'pending' | 'sent' | 'failed' | 'delivered' | 'read'
-  twilioMessageSid String?   @map("twilio_message_sid")
-  errorMessage     String?   @map("error_message") @db.Text
-  retryCount       Int       @default(0) @map("retry_count")
-  patientResponse  String?   @map("patient_response") // 'confirmed' | 'cancelled' | 'rescheduled' | null
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-
-  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  id               String      @id @default(uuid())
+  appointmentId    String      @map("appointment_id")
+  sentAt           DateTime?   @map("sent_at")
+  status           String      @default("pending")
+  twilioMessageSid String?     @map("twilio_message_sid")
+  errorMessage     String?     @map("error_message")
+  retryCount       Int         @default(0) @map("retry_count")
+  patientResponse  String?     @map("patient_response")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+  appointment      Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
   @@map("appointment_reminders")
   @@schema("inventa_clinical_app")
@@ -334,14 +334,14 @@ model Transaction {
   billingRuc        String?           @map("billing_ruc")
   billingName       String?           @map("billing_name")
   billingAddress    String?           @map("billing_address")
-  observation       String?           @map("observation") // Motivo de exoneración
   subtotal          Decimal           @db.Decimal(10, 2)
-  savings           Decimal           @default(0) @db.Decimal(10, 2) // Cobertura de seguro
-  exoneratedAmount  Decimal           @default(0) @map("exonerated_amount") @db.Decimal(10, 2) // Monto exonerado
+  savings           Decimal           @default(0) @db.Decimal(10, 2)
   total             Decimal           @db.Decimal(10, 2)
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
   doctorId          String?           @map("doctor_id")
+  exoneratedAmount  Decimal           @default(0) @map("exonerated_amount") @db.Decimal(10, 2)
+  observation       String?           @map("observation")
   items             TransactionItem[]
   author            User?             @relation("TransactionAuthor", fields: [authorId], references: [id])
   doctor            User?             @relation("TransactionDoctor", fields: [doctorId], references: [id])
@@ -363,6 +363,106 @@ model TransactionItem {
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@map("transaction_items")
+  @@schema("inventa_clinical_app")
+}
+
+model MedicalVisit {
+  id             String      @id @default(uuid())
+  visitorName    String      @map("visitor_name")
+  laboratory     String
+  branchId       String      @map("branch_id")
+  professionalId String      @map("professional_id")
+  notes          String?
+  status         VisitStatus @default(WAITING)
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  branch         Branch      @relation(fields: [branchId], references: [id])
+  professional   User        @relation(fields: [professionalId], references: [id])
+
+  @@index([branchId])
+  @@index([professionalId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("medical_visits")
+  @@schema("inventa_clinical_app")
+}
+
+model Conversation {
+  id            String                @id @default(uuid())
+  patientId     String                @map("patient_id")
+  channel       String                @default("whatsapp")
+  status        String                @default("open")
+  unreadCount   Int                   @default(0) @map("unread_count")
+  lastMessageAt DateTime?             @map("last_message_at")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+  messages      ConversationMessage[]
+  tags          ConversationTag[]
+  patient       Patient               @relation(fields: [patientId], references: [id])
+
+  @@map("conversations")
+  @@schema("inventa_clinical_app")
+}
+
+model ConversationMessage {
+  id             String       @id @default(uuid())
+  conversationId String       @map("conversation_id")
+  content        String
+  type           String       @default("text")
+  sender         String
+  status         String       @default("sent")
+  mediaUrl       String?      @map("media_url")
+  mediaType      String?      @map("media_type")
+  mediaSize      Int?         @map("media_size")
+  externalId     String?      @map("external_id")
+  externalUrl    String?      @map("external_url")
+  sentAt         DateTime     @default(now()) @map("sent_at")
+  userId         String?      @map("user_id")
+  user           User?        @relation(fields: [userId], references: [id])
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_messages")
+  @@schema("inventa_clinical_app")
+}
+
+model ConversationTag {
+  id             String       @id @default(uuid())
+  conversationId String       @map("conversation_id")
+  tag            String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_tags")
+  @@schema("inventa_clinical_app")
+}
+
+model AutomationCampaign {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  isEnabled   Boolean  @default(false) @map("is_enabled")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("automation_campaigns")
+  @@schema("inventa_clinical_app")
+}
+
+model NpsResponse {
+  id                String      @id @default(uuid())
+  appointmentId     String      @unique @map("appointment_id")
+  patientPhone      String      @map("patient_phone")
+  score             Int?
+  comment           String?
+  status            String      @default("PENDING_SCORE")
+  expiresAt         DateTime?   @map("expires_at")
+  sentAt            DateTime    @default(now()) @map("sent_at")
+  scoreReceivedAt   DateTime?   @map("score_received_at")
+  commentReceivedAt DateTime?   @map("comment_received_at")
+  appointment       Appointment @relation(fields: [appointmentId], references: [id])
+
+  @@index([patientPhone, status])
+  @@map("nps_responses")
   @@schema("inventa_clinical_app")
 }
 
@@ -417,116 +517,11 @@ enum TransactionStatus {
   @@schema("inventa_clinical_app")
 }
 
-model MedicalVisit {
-  id             String      @id @default(uuid())
-  visitorName    String      @map("visitor_name")
-  laboratory     String
-  branchId       String      @map("branch_id")
-  professionalId String      @map("professional_id")
-  notes          String?     @db.Text
-  status         VisitStatus @default(WAITING)
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
-  branch         Branch      @relation(fields: [branchId], references: [id])
-  professional   User        @relation(fields: [professionalId], references: [id])
-
-  @@index([branchId])
-  @@index([professionalId])
-  @@index([status])
-  @@index([createdAt])
-  @@map("medical_visits")
-  @@schema("inventa_clinical_app")
-}
-
 enum VisitStatus {
   WAITING
   IN_PROGRESS
   COMPLETED
   CANCELLED
 
-  @@schema("inventa_clinical_app")
-}
-
-model Conversation {
-  id            String    @id @default(uuid())
-  patientId     String    @map("patient_id")
-  channel       String    @default("whatsapp") // 'whatsapp' | 'instagram' | 'email'
-  status        String    @default("open") // 'open' | 'closed' | 'archived'
-  unreadCount   Int       @default(0) @map("unread_count")
-  lastMessageAt DateTime? @map("last_message_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-
-  patient  Patient               @relation(fields: [patientId], references: [id])
-  messages ConversationMessage[]
-  tags     ConversationTag[]
-
-  @@map("conversations")
-  @@schema("inventa_clinical_app")
-}
-
-model ConversationMessage {
-  id             String @id @default(uuid())
-  conversationId String @map("conversation_id")
-  content        String @db.Text
-  type           String @default("text") // 'text' | 'image' | 'audio' | 'video' | 'document'
-  sender         String // 'clinic' | 'patient'
-  status         String @default("sent") // 'sending' | 'sent' | 'delivered' | 'read'
-
-  // Multimedia fields
-  mediaUrl    String? @map("media_url") // Local path: /uploads/messages/...
-  mediaType   String? @map("media_type") // MIME type: image/jpeg, audio/ogg
-  mediaSize   Int?    @map("media_size") // File size in bytes
-  externalId  String? @map("external_id") // Twilio Message SID
-  externalUrl String? @map("external_url") // Original Twilio URL (backup)
-
-  sentAt       DateTime     @default(now()) @map("sent_at")
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@map("conversation_messages")
-  @@schema("inventa_clinical_app")
-}
-
-model ConversationTag {
-  id             String @id @default(uuid())
-  conversationId String @map("conversation_id")
-  tag            String
-
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@map("conversation_tags")
-  @@schema("inventa_clinical_app")
-}
-
-model AutomationCampaign {
-  id          String   @id @default(uuid())
-  key         String   @unique // 'appointment_reminders' | 'birthday_greetings'
-  name        String
-  description String?
-  isEnabled   Boolean  @default(false) @map("is_enabled")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  @@map("automation_campaigns")
-  @@schema("inventa_clinical_app")
-}
-
-model NpsResponse {
-  id               String    @id @default(uuid())
-  appointmentId    String    @map("appointment_id")
-  patientPhone     String    @map("patient_phone")
-  score            Int?      // 1 (Mala) | 3 (Regular) | 5 (Excelente)
-  comment          String?   @db.Text
-  status           String    @default("PENDING_SCORE") // PENDING_SCORE | PENDING_COMMENT | COMPLETED
-  expiresAt        DateTime? @map("expires_at")
-  sentAt           DateTime  @default(now()) @map("sent_at")
-  scoreReceivedAt  DateTime? @map("score_received_at")
-  commentReceivedAt DateTime? @map("comment_received_at")
-  
-  appointment      Appointment @relation(fields: [appointmentId], references: [id])
-  
-  @@unique([appointmentId])
-  @@index([patientPhone, status])
-  @@map("nps_responses")
   @@schema("inventa_clinical_app")
 }

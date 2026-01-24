@@ -65,7 +65,8 @@ export const getConversationMessages = async (req: Request, res: Response) => {
 
         const messages = await prisma.conversationMessage.findMany({
             where: { conversationId: id },
-            orderBy: { sentAt: 'asc' }
+            orderBy: { sentAt: 'asc' },
+            include: { user: { select: { fullName: true } } }
         });
 
         // Transform to match frontend Message type
@@ -74,6 +75,7 @@ export const getConversationMessages = async (req: Request, res: Response) => {
             content: msg.content,
             type: msg.type,
             sender: msg.sender === 'clinic' ? 'me' : 'patient',
+            senderName: msg.user?.fullName, // For audit
             timestamp: msg.sentAt.toISOString(),
             status: msg.status,
             mediaUrl: msg.mediaUrl,
@@ -115,7 +117,8 @@ export const sendMessage = async (req: Request, res: Response) => {
         const result = await notificationService.sendMessage({
             patientId: conversation.patientId,
             message: content || '(Archivo adjunto)',
-            mediaUrl
+            mediaUrl,
+            userId: (req as any).user?.id
         });
 
         if (!result.success) {

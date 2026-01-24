@@ -29,6 +29,7 @@ export class NotificationService {
         patientId: string;
         message: string;
         mediaUrl?: string;
+        userId?: string;
     }) {
         const patient = await prisma.patient.findUnique({
             where: { id: params.patientId }
@@ -70,7 +71,8 @@ export class NotificationService {
                 sender: 'clinic',
                 status: result.success ? 'sent' : 'failed',
                 mediaUrl: params.mediaUrl,
-                externalId: result.messageId
+                externalId: result.messageId,
+                userId: params.userId
             }
         });
 
