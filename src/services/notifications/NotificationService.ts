@@ -215,19 +215,32 @@ export class NotificationService {
                 if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
 
                 // Extract digits only for robust matching
-                const phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
+                const remoteNumber = remoteJid.split('@')[0];
+                const phoneDigits = remoteNumber.replace(/\D/g, '');
 
-                // Extract message content
-                const content = msg.message?.conversation ||
-                    msg.message?.extendedTextMessage?.text ||
-                    msg.message?.imageMessage?.caption ||
-                    (msg.message?.imageMessage ? '(Imagen)' : '') ||
-                    (msg.message?.audioMessage ? '(Audio)' : '') ||
-                    (msg.message?.videoMessage ? '(Video)' : '') ||
-                    (msg.message?.documentMessage ? '(Documento)' : '') ||
-                    '';
+                console.log(`📥 Processing Baileys message from ${remoteNumber}`);
 
-                if (!content && !msg.message?.imageMessage && !msg.message?.audioMessage) continue;
+                // Extract message content with more robust check
+                const getMessageBody = (m: any) => {
+                    if (!m) return '';
+                    if (m.conversation) return m.conversation;
+                    if (m.extendedTextMessage?.text) return m.extendedTextMessage.text;
+                    if (m.imageMessage?.caption) return m.imageMessage.caption;
+                    if (m.videoMessage?.caption) return m.videoMessage.caption;
+                    if (m.documentMessage?.caption) return m.documentMessage.caption;
+                    return '';
+                };
+
+                const content = getMessageBody(msg.message);
+                const msgType = this.getBaileysMessageType(msg.message);
+
+                console.log(`💬 Message Content: "${content}", Type: ${msgType}`);
+
+                // Skip if no content and not media
+                if (!content && msgType === 'text') {
+                    console.log('⏭️ Skipping empty message');
+                    continue;
+                }
 
                 // Find patient by phone - flexible matching
                 let patient = await prisma.patient.findFirst({
@@ -265,12 +278,22 @@ export class NotificationService {
                     });
                 }
 
+                // Check if message already exists (avoid duplicates from re-connection)
+                const exists = await prisma.conversationMessage.findFirst({
+                    where: { externalId: msg.key.id }
+                });
+
+                if (exists) {
+                    console.log(`⏭️ Message ${msg.key.id} already exists, skipping.`);
+                    continue;
+                }
+
                 // Save message
                 await prisma.conversationMessage.create({
                     data: {
                         conversationId: conversation.id,
-                        content: content,
-                        type: this.getBaileysMessageType(msg.message),
+                        content: content || (msgType === 'text' ? '' : `(Archivo: ${msgType})`),
+                        type: msgType,
                         sender: 'patient',
                         status: 'delivered',
                         externalId: msg.key.id,
@@ -287,10 +310,10 @@ export class NotificationService {
                     }
                 });
 
-                console.log(`📥 Saved incoming Baileys message from ${phoneDigits}`);
+                console.log(`✅ Saved incoming Baileys message into conversation ${conversation.id}`);
             }
         } catch (error) {
-            console.error('Error processing Baileys message:', error);
+            console.error('❌ Error processing Baileys message:', error);
         }
     }
 
