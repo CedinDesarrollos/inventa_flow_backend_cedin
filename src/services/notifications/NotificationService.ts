@@ -252,8 +252,20 @@ export class NotificationService {
                 const content = extractContent(msg.message);
                 const msgType = this.getBaileysMessageType(msg.message);
 
-                // Phone number digits (can be the LID itself if no phone found)
-                const phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
+                // Phone number digits
+                let phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
+
+                // LID Resolution
+                if (remoteJid.endsWith('@lid')) {
+                    const resolvedPhone = await this.baileysProvider.getPhoneNumberFromLid(remoteJid);
+                    if (resolvedPhone) {
+                        console.log(`🔄 [LID-RESOLVE] Mapped ${remoteJid} -> ${resolvedPhone}`);
+                        phoneDigits = resolvedPhone;
+                    } else {
+                        console.log(`⚠️ [LID-FAIL] Could not resolve ${remoteJid} to phone. Using raw digits.`);
+                    }
+                }
+
                 const searchSuffix = phoneDigits.slice(-8);
 
                 // Find patient
@@ -298,7 +310,20 @@ export class NotificationService {
                 });
                 if (exists) continue;
 
-                // Save message (Mirroring support: fromMe ? 'clinic' : 'patient')
+                // Fix Timestamp
+                let msgDate = new Date();
+                if (msg.messageTimestamp) {
+                    // Safe conversion for Long or number
+                    const ts = typeof msg.messageTimestamp === 'number'
+                        ? msg.messageTimestamp
+                        : (msg.messageTimestamp as any).toNumber ? (msg.messageTimestamp as any).toNumber() : Number(msg.messageTimestamp);
+
+                    if (!isNaN(ts)) {
+                        msgDate = new Date(ts * 1000);
+                    }
+                }
+
+                // Save message
                 await prisma.conversationMessage.create({
                     data: {
                         conversationId: conversation.id,
@@ -308,7 +333,7 @@ export class NotificationService {
                         status: 'delivered',
                         externalId: msg.key.id,
                         provider: 'baileys',
-                        sentAt: msg.messageTimestamp ? new Date((msg.messageTimestamp as number) * 1000) : new Date()
+                        sentAt: msgDate
                     }
                 });
 
@@ -321,7 +346,7 @@ export class NotificationService {
                     }
                 });
 
-                console.log(`✅ [SYNC] ${fromMe ? 'Mirror' : 'Incoming'} saved`);
+                console.log(`✅ [SYNC] ${fromMe ? 'Mirror' : 'Incoming'} saved for ${patient.firstName}`);
             }
         } catch (error) {
             console.error('❌ [CRASH] onBaileysMessage:', error);

@@ -4,8 +4,12 @@ import makeWASocket, {
     useMultiFileAuthState,
     WASocket,
     ConnectionState,
-    proto
+    proto,
+    Contact,
+    Browsers
 } from '@whiskeysockets/baileys';
+// @ts-ignore - store export varies by version
+import makeInMemoryStore from '@whiskeysockets/baileys/lib/Store/make-in-memory-store';
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode';
 import * as fs from 'fs';
@@ -14,8 +18,46 @@ import * as path from 'path';
 export class BaileysProvider implements IWhatsAppProvider {
     name = 'baileys';
     private sock: WASocket | null = null;
+    private store: any;
     private qrCode: string | null = null;
     private status: 'connected' | 'connecting' | 'disconnected' | 'waiting_qr' = 'disconnected';
+    /**
+     * Resolve LID to Phone Number using the Store
+     */
+    async getPhoneNumberFromLid(lid: string): Promise<string | null> {
+        if (!this.store) return null;
+        try {
+            // Remove suffix if present to match key
+            const id = lid.includes('@') ? lid : `${lid}@lid`;
+
+            // Search in contacts
+            // Store structure: contacts = { [jid]: { id, lid, notify, ... } }
+            // If we have an LID, we're looking for the contact that has this LID
+            // OR if the input IS an LID, we want the 'id' (phone JID)
+
+            // 1. Check if we have a contact with this ID directly (unlikely if it's an LID key not mapped)
+            const contact = this.store.contacts[id];
+            if (contact && contact.id && contact.id.endsWith('@s.whatsapp.net')) {
+                return contact.id.split('@')[0];
+            }
+
+            // 2. Iterate to find match
+            const contacts = this.store.contacts;
+            for (const key in contacts) {
+                const c = contacts[key];
+                if (c.lid === lid || c.id === lid) {
+                    // Found it! Return the phone JID (usually the key or stored in .id)
+                    // If the key is phone JID
+                    if (key.endsWith('@s.whatsapp.net')) return key.split('@')[0];
+                    if (c.id?.endsWith('@s.whatsapp.net')) return c.id.split('@')[0];
+                }
+            }
+        } catch (err) {
+            console.error('Error resolving LID', err);
+        }
+        return null;
+    }
+
     private authDir = process.env.BAILEYS_AUTH_DIR ||
         path.join(process.env.UPLOAD_DIR || path.resolve('public/uploads'), 'baileys_auth_info');
     private messageHandler: ((msg: any) => void) | null = null;
@@ -27,6 +69,14 @@ export class BaileysProvider implements IWhatsAppProvider {
     constructor() {
         if (!fs.existsSync(this.authDir)) {
             fs.mkdirSync(this.authDir, { recursive: true });
+        }
+        // Initialize store
+        try {
+            this.store = makeInMemoryStore({});
+            // Read from file if exists (optional persistence)
+            // this.store.readFromFile('./baileys_store_multi.json')
+        } catch (e) {
+            console.error('Failed to create InMemoryStore', e);
         }
     }
 
@@ -40,9 +90,21 @@ export class BaileysProvider implements IWhatsAppProvider {
 
         this.sock = makeWASocket({
             auth: state,
-            printQRInTerminal: true, // Useful for logs
-            browser: ['InventaFlow', 'Chrome', '1.0.0']
+            printQRInTerminal: true,
+            browser: Browsers.macOS('Desktop'),
+            getMessage: async (key) => {
+                if (this.store) {
+                    const msg = await this.store.loadMessage(key.remoteJid, key.id);
+                    return msg?.message || undefined;
+                }
+                return proto.Message.fromObject({})
+            }
         });
+
+        // Bind store
+        if (this.store) {
+            this.store.bind(this.sock.ev);
+        }
 
         this.sock.ev.on('creds.update', saveCreds);
 
