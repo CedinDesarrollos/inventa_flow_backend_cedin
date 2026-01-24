@@ -35,13 +35,15 @@ import { notificationService } from './services/notifications/NotificationServic
 // ... (existing imports)
 import rateLimit from 'express-rate-limit'; // Add this import
 
-const requiredEnvVars = ['JWT_SECRET', 'CORS_ORIGIN'];
+const requiredEnvVars = ['JWT_SECRET'];
 const missingEnvVars = requiredEnvVars.filter(env => !process.env[env]);
 
 if (missingEnvVars.length > 0) {
     console.error(`CRITICAL SECURITY ERROR: Missing required environment variables: ${missingEnvVars.join(', ')}`);
     process.exit(1);
 }
+
+const port = process.env.PORT || 3000;
 
 // Rate Limiting
 const limiter = rateLimit({
@@ -54,16 +56,10 @@ const limiter = rateLimit({
 
 const app = express();
 
-app.use(limiter); // Apply rate limiting globally
-
-// Enable trust proxy for Railway (to get correct protocol/host)
+// 1. Enable trust proxy for Railway
 app.set('trust proxy', 1);
 
-const port = process.env.PORT || 3000;
-
-app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" } // Allow loading images from different origin/port
-}));
+// 2. CORS - MUST be first to handle preflight for all routes/middleware
 app.use(cors({
     origin: (origin, callback) => {
         const defaultOrigins = [
@@ -74,7 +70,7 @@ app.use(cors({
         const envOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
         const allowed = [...defaultOrigins, ...envOrigins];
 
-        if (!origin || allowed.includes(origin)) {
+        if (!origin || allowed.includes(origin) || allowed.includes(origin.replace(/\/$/, ''))) {
             callback(null, true);
         } else {
             console.warn(`Blocked by CORS: ${origin}. Allowed: ${allowed.join(', ')}`);
@@ -85,6 +81,15 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
+
+// 3. Security Headers
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// 4. Rate Limiting
+app.use(limiter);
+
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.json({ limit: '50mb' }));
 
