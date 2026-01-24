@@ -65,7 +65,14 @@ app.use(helmet({
 }));
 app.use(cors({
     origin: (origin, callback) => {
-        const allowed = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(o => o.trim());
+        const defaultOrigins = [
+            'http://localhost:5173',
+            'http://localhost:3000',
+            'https://inventaflowfrontendcedin-production.up.railway.app'
+        ];
+        const envOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
+        const allowed = [...defaultOrigins, ...envOrigins];
+
         if (!origin || allowed.includes(origin)) {
             callback(null, true);
         } else {
@@ -73,7 +80,9 @@ app.use(cors({
             callback(new Error('Not allowed by CORS'));
         }
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.json({ limit: '50mb' }));
