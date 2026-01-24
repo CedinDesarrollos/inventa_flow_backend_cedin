@@ -205,85 +205,81 @@ export class NotificationService {
     private async onBaileysMessage(m: any) {
         try {
             const { messages, type } = m;
-            console.log(`📡 [BAILEYS EVENT] Type: ${type}, Messages: ${messages?.length}`);
+            console.log(`📡 [NOTIF-SRV] New Baileys Event: ${type}, Msgs: ${messages?.length}`);
 
             if (!messages) return;
 
             for (const msg of messages) {
-                // EXTREME DEBUG: Log the full structure of the first few messages to identify hidden fields
-                if (Math.random() > 0.8) { // Sample logs to avoid flooding but get enough info
-                    console.log('🔍 [BAILEYS RAW MSG DUMP]:', JSON.stringify(msg, null, 2));
-                }
-
                 const remoteJid = msg.key.remoteJid;
                 const fromMe = msg.key.fromMe;
 
-                console.log(`📝 [BAILEYS MSG] From: ${remoteJid}, fromMe: ${fromMe}, ID: ${msg.key.id}`);
+                // IGNORE STATUS UPDATES (like "read" notifications) if they don't have message content
+                if (type === 'append' && fromMe) continue;
 
-                if (!remoteJid) continue;
+                console.log(`📝 [MSG-IN] JID: ${remoteJid}, fromMe: ${fromMe}, ID: ${msg.key.id}`);
+
+                if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) {
+                    console.log(`⏭️ [SKIP] Not a direct message: ${remoteJid}`);
+                    continue;
+                }
 
                 // Deep extract content
                 const extractContent = (m: any): string => {
                     if (!m) return '';
-                    // Baileys messages can be nested in bizarre ways
-                    const body = m.conversation ||
-                        m.extendedTextMessage?.text ||
-                        m.imageMessage?.caption ||
-                        m.videoMessage?.caption ||
-                        m.documentMessage?.caption ||
-                        m.templateButtonReplyMessage?.selectedDisplayText ||
-                        m.buttonsResponseMessage?.selectedDisplayText ||
-                        m.listResponseMessage?.title ||
-                        m.listResponseMessage?.description ||
-                        (m.imageMessage ? '(Imagen)' : '') ||
-                        (m.audioMessage ? '(Audio)' : '') ||
-                        (m.videoMessage ? '(Video)' : '') ||
-                        (m.documentMessage ? '(Documento)' : '') ||
+                    const actualMsg = m.message || m;
+                    const body = actualMsg.conversation ||
+                        actualMsg.extendedTextMessage?.text ||
+                        actualMsg.imageMessage?.caption ||
+                        actualMsg.videoMessage?.caption ||
+                        actualMsg.documentMessage?.caption ||
+                        actualMsg.templateButtonReplyMessage?.selectedDisplayText ||
+                        actualMsg.buttonsResponseMessage?.selectedDisplayText ||
+                        actualMsg.listResponseMessage?.title ||
+                        (actualMsg.imageMessage ? '(Imagen)' : '') ||
+                        (actualMsg.audioMessage ? '(Audio)' : '') ||
+                        (actualMsg.videoMessage ? '(Video)' : '') ||
+                        (actualMsg.documentMessage ? '(Documento)' : '') ||
                         '';
 
                     if (body) return body;
-
-                    // Try one level deeper if m has a .message property
-                    if (m.message) return extractContent(m.message);
-
+                    if (actualMsg.message) return extractContent(actualMsg.message);
                     return '';
                 };
 
                 const content = extractContent(msg.message);
                 const msgType = this.getBaileysMessageType(msg.message);
 
-                console.log(`💬 [BAILEYS CONTENT] Type: ${msgType}, Content: "${content}"`);
+                console.log(`💬 [CONTENT] "${content}" (Type: ${msgType})`);
 
-                // Ignore if it's a protocol message or has no content and no media
-                if (!content && msgType === 'text' && !msg.message?.imageMessage && !msg.message?.audioMessage) {
-                    console.log('⏭️ Skipping: Empty or protocol message');
-                    continue;
-                }
-
-                // We only save incoming messages from others
+                // We only save incoming messages from others for the main flow
                 if (fromMe) {
-                    console.log('⏭️ Skipping save: Message is from me');
-                    continue;
-                }
-
-                if (!remoteJid.endsWith('@s.whatsapp.net')) {
-                    console.log(`⏭️ Skipping save: Not a personal chat (${remoteJid})`);
+                    console.log('⏭️ [SKIP] Message from me (phone outgoing)');
                     continue;
                 }
 
                 const phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
 
-                // Match last 9 digits for safety
-                const searchDigits = phoneDigits.length >= 9 ? phoneDigits.slice(-9) : phoneDigits;
+                // Match last 8 digits for flexible search
+                const searchSuffix = phoneDigits.slice(-8);
+                console.log(`🔍 [LOOKUP] Searching patient with suffix: ${searchSuffix}`);
 
-                let patient = await prisma.patient.findFirst({
+                // Fetch patients that MIGHT match
+                const potentialPatients = await prisma.patient.findMany({
                     where: {
-                        phone: { contains: searchDigits }
-                    }
+                        phone: { contains: searchSuffix }
+                    },
+                    select: { id: true, phone: true, firstName: true, lastName: true }
+                });
+
+                // Final filter in JS (normalize DB phone)
+                let patient = potentialPatients.find(p => {
+                    const dbDigits = (p.phone || '').replace(/\D/g, '');
+                    console.log(`   - Comparing incoming "${phoneDigits}" with DB "${dbDigits}" (suffix: "${searchSuffix}")`);
+                    return dbDigits.endsWith(searchSuffix);
                 });
 
                 if (!patient) {
-                    console.log(`🆕 Creating LEAD for unknown number: ${phoneDigits}`);
+                    console.log(`🆕 [NEW-LEAD] No patient found for ${phoneDigits}. Creating lead.`);
                     patient = await prisma.patient.create({
                         data: {
                             firstName: "WhatsApp User",
@@ -292,6 +288,8 @@ export class NotificationService {
                             identifier: `LEAD-BA-${phoneDigits}`,
                         }
                     });
+                } else {
+                    console.log(`✅ [FOUND] Patient matched: ${patient.firstName} ${patient.lastName} (${patient.id})`);
                 }
 
                 // Find or create conversation
@@ -300,6 +298,7 @@ export class NotificationService {
                 });
 
                 if (!conversation) {
+                    console.log(`➕ [CONV] Creating new conversation for patient ${patient.id}`);
                     conversation = await prisma.conversation.create({
                         data: {
                             patientId: patient.id,
@@ -309,18 +308,18 @@ export class NotificationService {
                     });
                 }
 
-                // Avoid duplicates
+                // Duplicate check
                 const exists = await prisma.conversationMessage.findFirst({
                     where: { externalId: msg.key.id }
                 });
 
                 if (exists) {
-                    console.log(`⏭️ Duplicate message ${msg.key.id}, skipped.`);
+                    console.log(`⏭️ [SKIP] Already saved: ${msg.key.id}`);
                     continue;
                 }
 
                 // Save message
-                await prisma.conversationMessage.create({
+                const savedMsg = await prisma.conversationMessage.create({
                     data: {
                         conversationId: conversation.id,
                         content: content || (msgType === 'text' ? '' : `(Archivo: ${msgType})`),
@@ -332,6 +331,8 @@ export class NotificationService {
                     }
                 });
 
+                console.log(`💾 [SAVED] Message ${savedMsg.id} saved to DB`);
+
                 // Update conversation
                 await prisma.conversation.update({
                     where: { id: conversation.id },
@@ -341,10 +342,10 @@ export class NotificationService {
                     }
                 });
 
-                console.log(`✅ [BAILEYS] Message saved successfully in DB`);
+                console.log(`🔔 [NOTIFIED] Conversation ${conversation.id} updated`);
             }
         } catch (error) {
-            console.error('❌ [BAILEYS ERROR] crash in onBaileysMessage:', error);
+            console.error('❌ [CRASH] Baileys Listener Error:', error);
         }
     }
 
