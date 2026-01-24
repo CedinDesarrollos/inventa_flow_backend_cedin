@@ -16,7 +16,8 @@ export class BaileysProvider implements IWhatsAppProvider {
     private sock: WASocket | null = null;
     private qrCode: string | null = null;
     private status: 'connected' | 'connecting' | 'disconnected' | 'waiting_qr' = 'disconnected';
-    private authDir = path.resolve('baileys_auth_info');
+    private authDir = process.env.BAILEYS_AUTH_DIR ||
+        path.join(process.env.UPLOAD_DIR || path.resolve('public/uploads'), 'baileys_auth_info');
     private messageHandler: ((msg: any) => void) | null = null;
 
     setMessageHandler(handler: (msg: any) => void) {
