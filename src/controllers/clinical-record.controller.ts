@@ -7,6 +7,7 @@ const clinicalRecordSchema = z.object({
     patientId: z.string().uuid(),
     doctorId: z.string().uuid().optional(),
     content: z.any(), // Rich Text JSON
+    vitalSigns: z.any().optional(), // Vital Signs { weight, height, bp, etc. }
     prescriptionItems: z.array(z.object({
         medicationName: z.string(),
         duration: z.string(),
@@ -102,6 +103,7 @@ export const createClinicalRecord = async (req: Request, res: Response) => {
                     patientId: data.patientId,
                     doctorId: data.doctorId,
                     content: data.content,
+                    vitalSigns: data.vitalSigns,
                     date: new Date(),
                 }
             });

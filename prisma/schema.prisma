@@ -244,6 +244,8 @@ model ClinicalRecord {
   patient       Patient        @relation(fields: [patientId], references: [id])
   prescriptions Prescription[]
 
+  vitalSigns Json? @map("vital_signs")
+
   @@map("clinical_records")
   @@schema("inventa_clinical_app")
 }
