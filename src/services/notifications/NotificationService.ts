@@ -205,14 +205,32 @@ export class NotificationService {
     private async onBaileysMessage(m: any) {
         try {
             const { messages, type } = m;
-            if (type !== 'notify') return;
+            console.log(`📡 [BAILEYS EVENT] Type: ${type}, Count: ${messages?.length}`);
+
+            if (!messages || messages.length === 0) return;
 
             for (const msg of messages) {
-                // Ignore messages sent by us
-                if (msg.key.fromMe) continue;
+                // Log the key structure to debug
+                console.log('📝 Message Key:', JSON.stringify(msg.key));
 
+                // Extract JID
                 const remoteJid = msg.key.remoteJid;
-                if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
+                if (!remoteJid) {
+                    console.log('⏭️ Skipping: No remoteJid');
+                    continue;
+                }
+
+                // Focus on direct messages for now (exclude groups if any)
+                if (!remoteJid.endsWith('@s.whatsapp.net')) {
+                    console.log(`⏭️ Skipping non-personal JID: ${remoteJid}`);
+                    continue;
+                }
+
+                // If it's from me, we might still want to log it but maybe not save it as patient message
+                if (msg.key.fromMe) {
+                    console.log('⏭️ Skipping: Message from ME (outgoing from phone)');
+                    continue;
+                }
 
                 // Extract digits only for robust matching
                 const remoteNumber = remoteJid.split('@')[0];

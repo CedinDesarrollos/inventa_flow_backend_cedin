@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+
+dotenv.config();
+
 import { PrismaClient } from '@prisma/client';
 import { prisma } from './lib/prisma';
 import authRoutes from './routes/auth.routes';
