@@ -172,3 +172,111 @@ export const deletePatient = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error al eliminar paciente' });
     }
 };
+
+export const mergePatients = async (req: Request, res: Response) => {
+    try {
+        const id = String(req.params.id); // Source ID (Duplicate)
+        const targetPatientId = String(req.body.targetPatientId); // Target ID (Real)
+
+        if (!targetPatientId || id === targetPatientId) {
+            return res.status(400).json({ error: 'ID de paciente destino inválido' });
+        }
+
+        // Use any to bypass local type missing 'lid'
+        const source = await prisma.patient.findUnique({ where: { id } }) as any;
+        const target = await prisma.patient.findUnique({ where: { id: targetPatientId } }) as any;
+
+        if (!source || !target) {
+            return res.status(404).json({ error: 'Paciente no encontrado' });
+        }
+
+        await prisma.$transaction(async (tx) => {
+            // 1. Transfer Conversations
+            await tx.conversation.updateMany({
+                where: { patientId: id },
+                data: { patientId: targetPatientId }
+            });
+
+            // 2. Transfer Appointments
+            await tx.appointment.updateMany({
+                where: { patientId: id },
+                data: { patientId: targetPatientId }
+            });
+
+            // 3. Transfer Clinical Records
+            await tx.clinicalRecord.updateMany({
+                where: { patientId: id },
+                data: { patientId: targetPatientId }
+            });
+
+            // 4. Transfer Transactions
+            await tx.transaction.updateMany({
+                where: { patientId: id },
+                data: { patientId: targetPatientId }
+            });
+
+            // 5. Transfer Prescriptions
+            await tx.prescription.updateMany({
+                where: { patientId: id },
+                data: { patientId: targetPatientId }
+            });
+
+            // 6. Transfer Tags
+            const sourceTags = await tx.patientTag.findMany({ where: { patientId: id } });
+            for (const pt of sourceTags) {
+                const existing = await tx.patientTag.findUnique({
+                    where: {
+                        patientId_tagId: {
+                            patientId: targetPatientId,
+                            tagId: pt.tagId
+                        }
+                    }
+                });
+                if (!existing) {
+                    await tx.patientTag.update({
+                        where: {
+                            patientId_tagId: {
+                                patientId: id,
+                                tagId: pt.tagId
+                            }
+                        },
+                        data: { patientId: targetPatientId }
+                    });
+                } else {
+                    await tx.patientTag.delete({
+                        where: {
+                            patientId_tagId: {
+                                patientId: id,
+                                tagId: pt.tagId
+                            }
+                        }
+                    });
+                }
+            }
+
+            // 9. Transfer LID logic
+            const updateData: any = {};
+            if (source.lid) {
+                // Remove LID from source first to avoid unique constraint
+                await tx.patient.update({ where: { id }, data: { lid: null } as any });
+                updateData.lid = source.lid;
+            }
+
+            if (Object.keys(updateData).length > 0) {
+                await tx.patient.update({
+                    where: { id: targetPatientId },
+                    data: updateData
+                });
+            }
+
+            // 10. Delete Source
+            await tx.patient.delete({ where: { id } });
+        });
+
+        res.json({ success: true, message: 'Pacientes fusionados correctamente' });
+
+    } catch (error) {
+        console.error('Error merging patients:', error);
+        res.status(500).json({ error: 'Error al fusionar pacientes' });
+    }
+};
