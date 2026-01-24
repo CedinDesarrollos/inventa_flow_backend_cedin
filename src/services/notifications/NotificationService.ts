@@ -256,22 +256,47 @@ export class NotificationService {
                 let phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
 
                 // LID Resolution
+                let resolvedPhone: string | null = null;
                 if (remoteJid.endsWith('@lid')) {
-                    const resolvedPhone = await this.baileysProvider.getPhoneNumberFromLid(remoteJid);
+                    resolvedPhone = await this.baileysProvider.getPhoneNumberFromLid(remoteJid);
                     if (resolvedPhone) {
                         console.log(`🔄 [LID-RESOLVE] Mapped ${remoteJid} -> ${resolvedPhone}`);
                         phoneDigits = resolvedPhone;
-                    } else {
-                        console.log(`⚠️ [LID-FAIL] Could not resolve ${remoteJid} to phone. Using raw digits.`);
                     }
                 }
 
                 const searchSuffix = phoneDigits.slice(-8);
 
-                // Find patient
-                let patient = await prisma.patient.findFirst({
-                    where: { phone: { contains: searchSuffix } }
-                });
+                // Declare patient variable
+                let patient: any = null;
+
+                // 1. Try finding by LID (strongest match)
+                if (remoteJid.endsWith('@lid')) {
+                    patient = await prisma.patient.findUnique({
+                        where: { lid: remoteJid } as any
+                    });
+                    if (patient) console.log(`✅ [MATCH-LID] Found ${patient.firstName} by LID`);
+                }
+
+                // 2. If not found by LID, try by Phone
+                if (!patient) {
+                    patient = await prisma.patient.findFirst({
+                        where: { phone: { contains: searchSuffix } }
+                    });
+
+                    // If found by phone but has no LID, link it!
+                    if (patient && remoteJid.endsWith('@lid') && !patient.lid) {
+                        try {
+                            await prisma.patient.update({
+                                where: { id: patient.id },
+                                data: { lid: remoteJid } as any
+                            });
+                            console.log(`🔗 [LINK] Auto-linked LID ${remoteJid} to ${patient.firstName}`);
+                        } catch (e) {
+                            console.error('Failed to auto-link LID', e);
+                        }
+                    }
+                }
 
                 if (!patient) {
                     if (fromMe) {
@@ -285,7 +310,8 @@ export class NotificationService {
                             lastName: phoneDigits,
                             phone: phoneDigits,
                             identifier: `LEAD-BA-${phoneDigits}`,
-                        }
+                            lid: remoteJid.endsWith('@lid') ? remoteJid : undefined
+                        } as any
                     });
                 }
 

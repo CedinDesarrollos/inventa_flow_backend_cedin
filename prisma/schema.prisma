@@ -89,6 +89,7 @@ model Patient {
   identifier      String           @unique
   email           String?
   phone           String?
+  lid             String?          @unique // WhatsApp LID for precise matching
   birthDate       DateTime?        @map("birth_date")
   address         String?
   insuranceId     String?          @map("insurance_id")
