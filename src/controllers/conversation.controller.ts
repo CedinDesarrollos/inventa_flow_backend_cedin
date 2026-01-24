@@ -118,7 +118,7 @@ export const sendMessage = async (req: Request, res: Response) => {
             patientId: conversation.patientId,
             message: content || '(Archivo adjunto)',
             mediaUrl,
-            userId: (req as any).user?.id
+            userId: (req as any).user?.userId || (req as any).user?.id
         });
 
         if (!result.success) {

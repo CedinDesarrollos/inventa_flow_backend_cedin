@@ -7,7 +7,12 @@ import {
     updateStatus
 } from '../controllers/conversation.controller';
 
+import { authenticateToken } from '../middleware/auth.middleware';
+
 const router = Router();
+
+// Apply auth middleware to all routes
+router.use(authenticateToken);
 
 // GET /api/conversations - List all conversations
 router.get('/', getConversations);
