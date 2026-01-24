@@ -147,6 +147,7 @@ export class BaileysProvider implements IWhatsAppProvider {
         connected: boolean;
         status: string;
         qrCode?: string;
+        number?: string;
         error?: string;
     }> {
         let qrDataUrl = undefined;
