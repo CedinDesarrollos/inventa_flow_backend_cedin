@@ -205,50 +205,61 @@ export class NotificationService {
     private async onBaileysMessage(m: any) {
         try {
             const { messages, type } = m;
-            console.log(`📡 [BAILEYS EVENT] Type: ${type}, Count: ${messages?.length}`);
+            console.log(`📡 [BAILEYS EVENT] Type: ${type}, Messages: ${messages?.length}`);
 
-            if (!messages || messages.length === 0) return;
+            if (!messages) return;
 
             for (const msg of messages) {
                 const remoteJid = msg.key.remoteJid;
-                if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
+                const fromMe = msg.key.fromMe;
 
-                // Extract digits only for robust matching
-                const phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
+                console.log(`📝 [BAILEYS MSG] From: ${remoteJid}, fromMe: ${fromMe}, ID: ${msg.key.id}`);
+
+                if (!remoteJid) continue;
 
                 // Deep extract content
                 const extractContent = (m: any): string => {
                     if (!m) return '';
-                    return m.conversation ||
-                        m.extendedTextMessage?.text ||
-                        m.imageMessage?.caption ||
-                        m.videoMessage?.caption ||
-                        m.documentMessage?.caption ||
-                        m.templateButtonReplyMessage?.selectedDisplayText ||
-                        m.buttonsResponseMessage?.selectedDisplayText ||
-                        (m.imageMessage ? '(Imagen)' : '') ||
-                        (m.audioMessage ? '(Audio)' : '') ||
-                        (m.videoMessage ? '(Video)' : '') ||
-                        (m.documentMessage ? '(Documento)' : '') ||
+                    // Handle wrapped messages (sometimes used in some versions)
+                    const actualMsg = m.message || m;
+                    return actualMsg.conversation ||
+                        actualMsg.extendedTextMessage?.text ||
+                        actualMsg.imageMessage?.caption ||
+                        actualMsg.videoMessage?.caption ||
+                        actualMsg.documentMessage?.caption ||
+                        actualMsg.templateButtonReplyMessage?.selectedDisplayText ||
+                        actualMsg.buttonsResponseMessage?.selectedDisplayText ||
+                        (actualMsg.imageMessage ? '(Imagen)' : '') ||
+                        (actualMsg.audioMessage ? '(Audio)' : '') ||
+                        (actualMsg.videoMessage ? '(Video)' : '') ||
+                        (actualMsg.documentMessage ? '(Documento)' : '') ||
                         '';
                 };
 
                 const content = extractContent(msg.message);
                 const msgType = this.getBaileysMessageType(msg.message);
 
-                console.log(`📥 [BAILEYS] Msg from ${phoneDigits}: "${content}" (Type: ${msgType}, fromMe: ${msg.key.fromMe})`);
+                console.log(`💬 [BAILEYS CONTENT] Type: ${msgType}, Content: "${content}"`);
 
-                // Ignore if it's from me (clinic sending from phone)
-                if (msg.key.fromMe) continue;
+                // We only save incoming messages from others
+                if (fromMe) {
+                    console.log('⏭️ Skipping save: Message is from me');
+                    continue;
+                }
 
-                if (!content && msgType === 'text') continue;
+                if (!remoteJid.endsWith('@s.whatsapp.net')) {
+                    console.log(`⏭️ Skipping save: Not a personal chat (${remoteJid})`);
+                    continue;
+                }
 
-                // Find patient by phone - Match last 9 digits (more common length)
+                const phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
+
+                // Match last 9 digits for safety
+                const searchDigits = phoneDigits.length >= 9 ? phoneDigits.slice(-9) : phoneDigits;
+
                 let patient = await prisma.patient.findFirst({
                     where: {
-                        phone: {
-                            contains: phoneDigits.length >= 9 ? phoneDigits.slice(-9) : phoneDigits
-                        }
+                        phone: { contains: searchDigits }
                     }
                 });
 
@@ -256,7 +267,7 @@ export class NotificationService {
                     console.log(`🆕 Creating LEAD for unknown number: ${phoneDigits}`);
                     patient = await prisma.patient.create({
                         data: {
-                            firstName: "Usuario WhatsApp",
+                            firstName: "WhatsApp User",
                             lastName: phoneDigits,
                             phone: phoneDigits,
                             identifier: `LEAD-BA-${phoneDigits}`,
@@ -279,11 +290,15 @@ export class NotificationService {
                     });
                 }
 
-                // Check for duplicates
+                // Avoid duplicates
                 const exists = await prisma.conversationMessage.findFirst({
                     where: { externalId: msg.key.id }
                 });
-                if (exists) continue;
+
+                if (exists) {
+                    console.log(`⏭️ Duplicate message ${msg.key.id}, skipped.`);
+                    continue;
+                }
 
                 // Save message
                 await prisma.conversationMessage.create({
@@ -307,10 +322,10 @@ export class NotificationService {
                     }
                 });
 
-                console.log(`✅ [BAILEYS] Message saved for ${patient.firstName}`);
+                console.log(`✅ [BAILEYS] Message saved successfully in DB`);
             }
         } catch (error) {
-            console.error('❌ Error processing Baileys message:', error);
+            console.error('❌ [BAILEYS ERROR] crash in onBaileysMessage:', error);
         }
     }
 
