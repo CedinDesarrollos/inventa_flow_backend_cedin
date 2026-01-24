@@ -75,7 +75,11 @@ export const getPatientById = async (req: Request, res: Response) => {
                 insurance: true,
                 tags: { include: { tag: true } },
                 appointments: { orderBy: { date: 'desc' }, take: 5 },
-                clinicalRecords: { orderBy: { date: 'desc' }, take: 5 }
+                clinicalRecords: {
+                    orderBy: { date: 'desc' },
+                    take: 5,
+                    include: { doctor: true }
+                }
             }
         });
         if (!patient) return res.status(404).json({ error: 'Paciente no encontrado' });
