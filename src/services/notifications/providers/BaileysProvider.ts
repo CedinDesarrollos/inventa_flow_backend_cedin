@@ -73,12 +73,19 @@ export class BaileysProvider implements IWhatsAppProvider {
             }
         });
 
-        // Listen for incoming messages (later integration)
+        // Listen for incoming messages
         this.sock.ev.on('messages.upsert', async (m) => {
+            console.log('📬 BaileysProvider: Raw messages.upsert received', { type: m.type, count: m.messages?.length });
             if (this.messageHandler) {
-                this.messageHandler(m);
+                try {
+                    await this.messageHandler(m);
+                    console.log('✅ BaileysProvider: Handler finished successfully');
+                } catch (handlerErr) {
+                    console.error('❌ BaileysProvider: Error in message handler:', handlerErr);
+                }
+            } else {
+                console.warn('⚠️ BaileysProvider: No message handler registered!');
             }
-            console.log('New message received:', JSON.stringify(m, undefined, 2));
         });
     }
 
