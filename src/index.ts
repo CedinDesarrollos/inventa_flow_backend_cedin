@@ -48,7 +48,7 @@ const port = process.env.PORT || 3000;
 // Rate Limiting
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
+    max: 1000, // Increased to avoid 429 during polling/data load
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
     message: 'Demasiadas peticiones desde esta IP, por favor intente de nuevo en 15 minutos.'
