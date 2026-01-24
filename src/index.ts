@@ -30,6 +30,7 @@ import automationRoutes from './routes/automation.routes';
 import whatsappRoutes from './routes/whatsapp.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { initNpsCron } from './jobs/npsCron';
+import { notificationService } from './services/notifications/NotificationService';
 
 // ... (existing imports)
 import rateLimit from 'express-rate-limit'; // Add this import
@@ -153,6 +154,9 @@ app.listen(port, () => {
 
     // Start NPS cron job
     initNpsCron();
+
+    // Initialize Global Notification Service (WhatsApp connections)
+    notificationService.initialize().catch(err => console.error('Failed to initialize NotificationService:', err));
 });
 
 process.on('SIGTERM', async () => {

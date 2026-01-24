@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
-import { NotificationService } from '../services/notifications/NotificationService';
+import { notificationService } from '../services/notifications/NotificationService';
 
 /**
  * Get all conversations with patient info and last message
@@ -80,7 +80,8 @@ export const getConversationMessages = async (req: Request, res: Response) => {
             status: msg.status,
             mediaUrl: msg.mediaUrl,
             mediaType: msg.mediaType,
-            mediaSize: msg.mediaSize
+            mediaSize: msg.mediaSize,
+            provider: msg.provider
         }));
 
         res.json(formatted);
@@ -110,9 +111,6 @@ export const sendMessage = async (req: Request, res: Response) => {
         if (!conversation) {
             return res.status(404).json({ error: 'Conversation not found' });
         }
-
-        const notificationService = new NotificationService();
-        await notificationService.initialize();
 
         const result = await notificationService.sendMessage({
             patientId: conversation.patientId,
