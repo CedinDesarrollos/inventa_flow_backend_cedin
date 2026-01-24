@@ -214,8 +214,8 @@ export class NotificationService {
                 const remoteJid = msg.key.remoteJid;
                 if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
 
-                // Extract phone number (+595...)
-                const phone = '+' + remoteJid.split('@')[0];
+                // Extract digits only for robust matching
+                const phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
 
                 // Extract message content
                 const content = msg.message?.conversation ||
@@ -229,20 +229,25 @@ export class NotificationService {
 
                 if (!content && !msg.message?.imageMessage && !msg.message?.audioMessage) continue;
 
-                // Find patient by phone
-                // We might need to handle phone number formatting (Twilio vs Baileys vs DB)
-                // Assuming DB stores them with + prefix or we normalize
-                const patient = await prisma.patient.findFirst({
+                // Find patient by phone - flexible matching
+                let patient = await prisma.patient.findFirst({
                     where: {
                         phone: {
-                            contains: phone.replace('+', '') // Flexible match
+                            contains: phoneDigits.slice(-8) // Match last 8 digits for flexibility
                         }
                     }
                 });
 
                 if (!patient) {
-                    console.log(`⚠️ Received message from unknown number: ${phone}`);
-                    continue;
+                    console.log(`🆕 Creating auto-LEAD for unknown number: ${phoneDigits}`);
+                    patient = await prisma.patient.create({
+                        data: {
+                            firstName: "WhatsApp User",
+                            lastName: phoneDigits,
+                            phone: phoneDigits,
+                            identifier: `LEAD-BA-${phoneDigits}`,
+                        }
+                    });
                 }
 
                 // Find or create conversation
@@ -267,7 +272,7 @@ export class NotificationService {
                         content: content,
                         type: this.getBaileysMessageType(msg.message),
                         sender: 'patient',
-                        status: 'sent',
+                        status: 'delivered',
                         externalId: msg.key.id,
                         provider: 'baileys'
                     }
@@ -282,7 +287,7 @@ export class NotificationService {
                     }
                 });
 
-                console.log(`📥 Saved incoming Baileys message from ${patient.firstName} ${patient.lastName}`);
+                console.log(`📥 Saved incoming Baileys message from ${phoneDigits}`);
             }
         } catch (error) {
             console.error('Error processing Baileys message:', error);
