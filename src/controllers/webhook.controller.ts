@@ -20,6 +20,22 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
 
         const phoneNumber = From.replace('whatsapp:', '').replace('+', '');
 
+        // Check if message is from our own number (Loopback/Echo)
+        const systemConfig = await prisma.systemSetting.findUnique({
+            where: { key: 'system_config' }
+        });
+
+        if (systemConfig?.value) {
+            const configValue = systemConfig.value as any;
+            const systemPhone = configValue.phone?.replace(/\D/g, ''); // Remove non-digits
+
+            // Flexible match (exact or endsWith to handle country codes differences)
+            if (systemPhone && (phoneNumber === systemPhone || phoneNumber.endsWith(systemPhone) || systemPhone.endsWith(phoneNumber))) {
+                console.log(`🛑 Ignoring message from own system number: ${phoneNumber}`);
+                return res.status(200).send('OK (Ignored Self-Message)');
+            }
+        }
+
         // 0. Intercept NPS Responses (Priority)
         const npsService = new NpsService();
         const npsPayload = ButtonPayload || Body;
