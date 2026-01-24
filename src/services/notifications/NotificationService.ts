@@ -210,6 +210,11 @@ export class NotificationService {
             if (!messages) return;
 
             for (const msg of messages) {
+                // EXTREME DEBUG: Log the full structure of the first few messages to identify hidden fields
+                if (Math.random() > 0.8) { // Sample logs to avoid flooding but get enough info
+                    console.log('🔍 [BAILEYS RAW MSG DUMP]:', JSON.stringify(msg, null, 2));
+                }
+
                 const remoteJid = msg.key.remoteJid;
                 const fromMe = msg.key.fromMe;
 
@@ -220,20 +225,28 @@ export class NotificationService {
                 // Deep extract content
                 const extractContent = (m: any): string => {
                     if (!m) return '';
-                    // Handle wrapped messages (sometimes used in some versions)
-                    const actualMsg = m.message || m;
-                    return actualMsg.conversation ||
-                        actualMsg.extendedTextMessage?.text ||
-                        actualMsg.imageMessage?.caption ||
-                        actualMsg.videoMessage?.caption ||
-                        actualMsg.documentMessage?.caption ||
-                        actualMsg.templateButtonReplyMessage?.selectedDisplayText ||
-                        actualMsg.buttonsResponseMessage?.selectedDisplayText ||
-                        (actualMsg.imageMessage ? '(Imagen)' : '') ||
-                        (actualMsg.audioMessage ? '(Audio)' : '') ||
-                        (actualMsg.videoMessage ? '(Video)' : '') ||
-                        (actualMsg.documentMessage ? '(Documento)' : '') ||
+                    // Baileys messages can be nested in bizarre ways
+                    const body = m.conversation ||
+                        m.extendedTextMessage?.text ||
+                        m.imageMessage?.caption ||
+                        m.videoMessage?.caption ||
+                        m.documentMessage?.caption ||
+                        m.templateButtonReplyMessage?.selectedDisplayText ||
+                        m.buttonsResponseMessage?.selectedDisplayText ||
+                        m.listResponseMessage?.title ||
+                        m.listResponseMessage?.description ||
+                        (m.imageMessage ? '(Imagen)' : '') ||
+                        (m.audioMessage ? '(Audio)' : '') ||
+                        (m.videoMessage ? '(Video)' : '') ||
+                        (m.documentMessage ? '(Documento)' : '') ||
                         '';
+
+                    if (body) return body;
+
+                    // Try one level deeper if m has a .message property
+                    if (m.message) return extractContent(m.message);
+
+                    return '';
                 };
 
                 const content = extractContent(msg.message);
