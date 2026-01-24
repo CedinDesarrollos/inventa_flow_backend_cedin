@@ -14,7 +14,13 @@ export const getConversations = async (req: Request, res: Response) => {
                         id: true,
                         firstName: true,
                         lastName: true,
-                        phone: true
+                        phone: true,
+                        insurance: true,
+                        appointments: {
+                            where: { date: { gte: new Date() } },
+                            orderBy: { date: 'asc' },
+                            take: 1
+                        }
                     }
                 },
                 messages: {
@@ -37,7 +43,8 @@ export const getConversations = async (req: Request, res: Response) => {
             lastMessage: conv.messages[0] || null,
             tags: conv.tags.map(t => t.tag),
             // Additional context (for UI sidebar)
-            nextAppointment: null, // TODO: fetch from appointments
+            nextAppointment: conv.patient.appointments[0]?.date.toISOString() || null,
+            insurance: conv.patient.insurance?.name || 'Particular',
             lastVisit: null,
             outstandingBalance: null
         }));
