@@ -205,7 +205,7 @@ export class NotificationService {
     private async onBaileysMessage(m: any) {
         try {
             const { messages, type } = m;
-            console.log(`📡 [NOTIF-SRV] New Baileys Event: ${type}, Msgs: ${messages?.length}`);
+            console.log(`📡 [WA-EVENT] ${type} (${messages?.length || 0} msgs)`);
 
             if (!messages) return;
 
@@ -213,15 +213,17 @@ export class NotificationService {
                 const remoteJid = msg.key.remoteJid;
                 const fromMe = msg.key.fromMe;
 
-                // IGNORE STATUS UPDATES (like "read" notifications) if they don't have message content
-                if (type === 'append' && fromMe) continue;
+                if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.includes('@g.us')) {
+                    continue; // Skip status and groups
+                }
 
-                console.log(`📝 [MSG-IN] JID: ${remoteJid}, fromMe: ${fromMe}, ID: ${msg.key.id}`);
-
-                if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) {
-                    console.log(`⏭️ [SKIP] Not a direct message: ${remoteJid}`);
+                // Support both @s.whatsapp.net and @lid
+                if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) {
+                    console.log(`⏭️ [SKIP] Unknown JID format: ${remoteJid}`);
                     continue;
                 }
+
+                console.log(`📝 [MSG] ID: ${msg.key.id.slice(-6)} | FromMe: ${fromMe} | JID: ${remoteJid}`);
 
                 // Deep extract content
                 const extractContent = (m: any): string => {
@@ -235,6 +237,7 @@ export class NotificationService {
                         actualMsg.templateButtonReplyMessage?.selectedDisplayText ||
                         actualMsg.buttonsResponseMessage?.selectedDisplayText ||
                         actualMsg.listResponseMessage?.title ||
+                        (actualMsg.stickerMessage ? '(Sticker)' : '') ||
                         (actualMsg.imageMessage ? '(Imagen)' : '') ||
                         (actualMsg.audioMessage ? '(Audio)' : '') ||
                         (actualMsg.videoMessage ? '(Video)' : '') ||
@@ -249,37 +252,21 @@ export class NotificationService {
                 const content = extractContent(msg.message);
                 const msgType = this.getBaileysMessageType(msg.message);
 
-                console.log(`💬 [CONTENT] "${content}" (Type: ${msgType})`);
-
-                // We only save incoming messages from others for the main flow
-                if (fromMe) {
-                    console.log('⏭️ [SKIP] Message from me (phone outgoing)');
-                    continue;
-                }
-
+                // Phone number digits (can be the LID itself if no phone found)
                 const phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
-
-                // Match last 8 digits for flexible search
                 const searchSuffix = phoneDigits.slice(-8);
-                console.log(`🔍 [LOOKUP] Searching patient with suffix: ${searchSuffix}`);
 
-                // Fetch patients that MIGHT match
-                const potentialPatients = await prisma.patient.findMany({
-                    where: {
-                        phone: { contains: searchSuffix }
-                    },
-                    select: { id: true, phone: true, firstName: true, lastName: true }
-                });
-
-                // Final filter in JS (normalize DB phone)
-                let patient = potentialPatients.find(p => {
-                    const dbDigits = (p.phone || '').replace(/\D/g, '');
-                    console.log(`   - Comparing incoming "${phoneDigits}" with DB "${dbDigits}" (suffix: "${searchSuffix}")`);
-                    return dbDigits.endsWith(searchSuffix);
+                // Find patient
+                let patient = await prisma.patient.findFirst({
+                    where: { phone: { contains: searchSuffix } }
                 });
 
                 if (!patient) {
-                    console.log(`🆕 [NEW-LEAD] No patient found for ${phoneDigits}. Creating lead.`);
+                    if (fromMe) {
+                        console.log(`⏭️ [MIRROR-SKIP] Outgoing for unknown number: ${phoneDigits}`);
+                        continue;
+                    }
+                    console.log(`🆕 [LEAD] Creating for ${phoneDigits}`);
                     patient = await prisma.patient.create({
                         data: {
                             firstName: "WhatsApp User",
@@ -288,17 +275,14 @@ export class NotificationService {
                             identifier: `LEAD-BA-${phoneDigits}`,
                         }
                     });
-                } else {
-                    console.log(`✅ [FOUND] Patient matched: ${patient.firstName} ${patient.lastName} (${patient.id})`);
                 }
 
-                // Find or create conversation
+                // Get conversation
                 let conversation = await prisma.conversation.findFirst({
                     where: { patientId: patient.id, channel: 'whatsapp' }
                 });
 
                 if (!conversation) {
-                    console.log(`➕ [CONV] Creating new conversation for patient ${patient.id}`);
                     conversation = await prisma.conversation.create({
                         data: {
                             patientId: patient.id,
@@ -312,40 +296,35 @@ export class NotificationService {
                 const exists = await prisma.conversationMessage.findFirst({
                     where: { externalId: msg.key.id }
                 });
+                if (exists) continue;
 
-                if (exists) {
-                    console.log(`⏭️ [SKIP] Already saved: ${msg.key.id}`);
-                    continue;
-                }
-
-                // Save message
-                const savedMsg = await prisma.conversationMessage.create({
+                // Save message (Mirroring support: fromMe ? 'clinic' : 'patient')
+                await prisma.conversationMessage.create({
                     data: {
                         conversationId: conversation.id,
                         content: content || (msgType === 'text' ? '' : `(Archivo: ${msgType})`),
                         type: msgType,
-                        sender: 'patient',
+                        sender: fromMe ? 'clinic' : 'patient',
                         status: 'delivered',
                         externalId: msg.key.id,
-                        provider: 'baileys'
+                        provider: 'baileys',
+                        sentAt: msg.messageTimestamp ? new Date((msg.messageTimestamp as number) * 1000) : new Date()
                     }
                 });
-
-                console.log(`💾 [SAVED] Message ${savedMsg.id} saved to DB`);
 
                 // Update conversation
                 await prisma.conversation.update({
                     where: { id: conversation.id },
                     data: {
                         lastMessageAt: new Date(),
-                        unreadCount: { increment: 1 }
+                        unreadCount: fromMe ? undefined : { increment: 1 }
                     }
                 });
 
-                console.log(`🔔 [NOTIFIED] Conversation ${conversation.id} updated`);
+                console.log(`✅ [SYNC] ${fromMe ? 'Mirror' : 'Incoming'} saved`);
             }
         } catch (error) {
-            console.error('❌ [CRASH] Baileys Listener Error:', error);
+            console.error('❌ [CRASH] onBaileysMessage:', error);
         }
     }
 
