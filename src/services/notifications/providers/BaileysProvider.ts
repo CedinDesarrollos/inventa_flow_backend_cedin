@@ -161,7 +161,8 @@ export class BaileysProvider implements IWhatsAppProvider {
         return {
             connected: this.status === 'connected',
             status: this.status,
-            qrCode: qrDataUrl
+            qrCode: qrDataUrl,
+            number: this.sock?.user?.id?.split(':')[0]?.split('@')[0]
         };
     }
 

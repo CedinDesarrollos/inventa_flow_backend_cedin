@@ -79,9 +79,13 @@ export class TwilioProvider implements IWhatsAppProvider {
     async getStatus() {
         try {
             await this.client.api.accounts(process.env.TWILIO_ACCOUNT_SID).fetch();
-            return { connected: true };
+            return {
+                connected: true,
+                status: 'connected',
+                number: process.env.TWILIO_WHATSAPP_NUMBER?.replace('whatsapp:', '')
+            };
         } catch (error: any) {
-            return { connected: false, error: error.message };
+            return { connected: false, status: 'error', error: error.message };
         }
     }
 

@@ -17,6 +17,9 @@ export interface IWhatsAppProvider {
 
     getStatus(): Promise<{
         connected: boolean;
+        status: string;
+        qrCode?: string;
+        number?: string;
         error?: string;
     }>;
 
