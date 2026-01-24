@@ -130,15 +130,21 @@ async function migrateAppointments(dryRun: boolean = true) {
     console.log('');
 
     try {
+        if (!dryRun) {
+            console.log('⚠️  TRUNCATING Appointment table...');
+            await prisma.appointment.deleteMany({});
+            console.log('✓ Appointment table truncated.');
+        }
+
         // Fetch legacy records
         console.log('📥 Fetching legacy records from reservas_consultas...');
+        // Removed filter: WHERE fecha_inicio > '2026-01-01' to migrate EVERYTHING
         const legacyRecords: LegacyRecord[] = await prisma.$queryRaw`
             SELECT 
                 id, id_organizador, cedula, nombre, email, numero_telefono,
                 tipo_reserva, fecha_inicio, hora_inicio, fecha_fin, hora_fin
             FROM public.reservas_consultas
-            WHERE fecha_inicio > '2026-01-01'
-            AND estado_reserva = 'ACCEPTED'
+            WHERE estado_reserva = 'ACCEPTED'
             ORDER BY fecha_inicio, hora_inicio
         `;
 
@@ -149,9 +155,10 @@ async function migrateAppointments(dryRun: boolean = true) {
         const errors: Array<{ record: any; error: string }> = [];
 
         for (const [index, record] of legacyRecords.entries()) {
-            console.log(`\n[${index + 1}/${legacyRecords.length}] Processing ID: ${record.id}`);
-            console.log(`  Patient: ${record.nombre} (${record.cedula})`);
-            console.log(`  Date: ${record.fecha_inicio} ${record.hora_inicio}`);
+            // Log progress every 10 records to avoid spamming
+            if (index % 10 === 0) {
+                console.log(`[${index + 1}/${legacyRecords.length}] Processing ID: ${record.id}`);
+            }
 
             try {
                 // 1. Map professional
@@ -169,27 +176,17 @@ async function migrateAppointments(dryRun: boolean = true) {
                     dryRun
                 );
 
-                if (!patientId && dryRun) {
-                    console.log(`  [DRY-RUN] Would proceed with patient creation`);
-                }
-
                 // 3. Combine dates and times
                 const startDateTime = combineDateAndTime(record.fecha_inicio, record.hora_inicio);
                 const endDateTime = combineDateAndTime(record.fecha_fin, record.hora_fin);
                 const duration = calculateDuration(startDateTime, endDateTime);
 
-                console.log(`  Duration: ${duration} minutes`);
-
                 // 4. Create appointment
                 if (dryRun) {
-                    console.log(`  [DRY-RUN] Would create appointment:`);
-                    console.log(`    - externalId: ${record.id}`);
-                    console.log(`    - patientId: ${patientId || '[NEW PATIENT]'}`);
-                    console.log(`    - professionalId: ${professionalId}`);
-                    console.log(`    - startTime: ${startDateTime.toISOString()}`);
-                    console.log(`    - endTime: ${endDateTime.toISOString()}`);
-                    console.log(`    - duration: ${duration} min`);
-                    console.log(`    - legacy_tipoReserva: ${record.tipo_reserva}`);
+                    // Verbose only for first few in dry run
+                    if (index < 5) {
+                        console.log(`  [DRY-RUN] Would create appointment for ${record.nombre} at ${startDateTime.toISOString()}`);
+                    }
                 } else {
                     if (!patientId) {
                         throw new Error('Patient ID is null in live mode');
@@ -206,12 +203,10 @@ async function migrateAppointments(dryRun: boolean = true) {
                             endDate: endDateTime,
                             duration: duration,
                             type: 'CONSULTATION',
-                            status: 'SCHEDULED',
+                            status: 'SCHEDULED', // All migrated are accepted/scheduled
                             legacy_tipoReserva: record.tipo_reserva,
                         }
                     });
-
-                    console.log(`  ✓ Appointment created successfully`);
                 }
 
                 successCount++;
@@ -219,7 +214,7 @@ async function migrateAppointments(dryRun: boolean = true) {
             } catch (error: any) {
                 errorCount++;
                 const errorMsg = error.message || String(error);
-                console.error(`  ✗ ERROR: ${errorMsg}`);
+                console.error(`  ✗ ERROR for ID ${record.id}: ${errorMsg}`);
                 errors.push({ record, error: errorMsg });
             }
         }
@@ -234,15 +229,16 @@ async function migrateAppointments(dryRun: boolean = true) {
 
         if (errors.length > 0) {
             console.log('\n❌ ERRORS ENCOUNTERED:');
-            errors.forEach(({ record, error }, i) => {
+            errors.slice(0, 10).forEach(({ record, error }, i) => {
                 console.log(`\n${i + 1}. Record ID ${record.id} (${record.nombre}):`);
                 console.log(`   Error: ${error}`);
             });
+            if (errors.length > 10) console.log(`... and ${errors.length - 10} more errors.`);
         }
 
         if (dryRun) {
             console.log('\n⚠️  DRY-RUN MODE: No changes were made to the database.');
-            console.log('   Run with dryRun=false to execute the migration.');
+            console.log('   Run with --live to execute the migration.');
         } else {
             console.log('\n✅ LIVE MIGRATION COMPLETED!');
         }

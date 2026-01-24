@@ -1,35 +1,36 @@
 import { TwilioProvider } from './providers/TwilioProvider';
+import { BaileysProvider } from './providers/BaileysProvider';
 import { IWhatsAppProvider } from './providers/IWhatsAppProvider';
 import { prisma } from '../../lib/prisma';
 
 export class NotificationService {
-    private provider: IWhatsAppProvider;
+    private twilioProvider: TwilioProvider;
+    private baileysProvider: BaileysProvider;
 
     constructor() {
-        const providerType = process.env.WHATSAPP_PROVIDER || 'twilio';
+        this.twilioProvider = new TwilioProvider();
+        this.baileysProvider = new BaileysProvider();
 
-        switch (providerType) {
-            case 'twilio':
-                this.provider = new TwilioProvider();
-                break;
-            // Future: case 'baileys': this.provider = new BaileysProvider();
-            default:
-                throw new Error(`Unknown WhatsApp provider: ${providerType}`);
-        }
+        // Register incoming message handler
+        this.baileysProvider.setMessageHandler(this.onBaileysMessage.bind(this));
     }
 
     async initialize() {
-        await this.provider.initialize();
+        await this.twilioProvider.initialize();
+        // Don't await baileys strictly if it hangs on connection
+        this.baileysProvider.initialize().catch(err => console.error('Failed to init Baileys', err));
     }
 
     /**
      * Send a message to a patient via WhatsApp
+     * Uses hybrid strategy: Manual (userId present) -> Baileys, Automation -> Twilio
      */
     async sendMessage(params: {
         patientId: string;
         message: string;
         mediaUrl?: string;
         userId?: string;
+        forceProvider?: 'twilio' | 'baileys';
     }) {
         const patient = await prisma.patient.findUnique({
             where: { id: params.patientId }
@@ -38,6 +39,26 @@ export class NotificationService {
         if (!patient?.phone) {
             throw new Error('Patient has no phone number');
         }
+
+        // Determine provider
+        let providerName = 'twilio';
+
+        if (params.forceProvider) {
+            providerName = params.forceProvider;
+        } else if (params.userId) {
+            // Manual response -> Prefer Baileys (Official Number)
+            const status = await this.baileysProvider.getStatus();
+            if (status.connected) {
+                providerName = 'baileys';
+            } else {
+                console.warn('Baileys not connected, falling back to Twilio for manual message');
+                providerName = 'twilio';
+            }
+        }
+
+        const activeProvider: IWhatsAppProvider = providerName === 'baileys'
+            ? this.baileysProvider
+            : this.twilioProvider;
 
         // Find or create conversation
         let conversation = await prisma.conversation.findFirst({
@@ -56,7 +77,7 @@ export class NotificationService {
         }
 
         // Send via provider
-        const result = await this.provider.sendMessage({
+        const result = await activeProvider.sendMessage({
             to: patient.phone,
             message: params.message,
             mediaUrl: params.mediaUrl
@@ -72,7 +93,8 @@ export class NotificationService {
                 status: result.success ? 'sent' : 'failed',
                 mediaUrl: params.mediaUrl,
                 externalId: result.messageId,
-                userId: params.userId
+                userId: params.userId,
+                provider: providerName
             }
         });
 
@@ -86,7 +108,7 @@ export class NotificationService {
     }
 
     /**
-     * Send appointment reminder using approved template (Phase 2)
+     * Send appointment reminder using approved template (Always Twilio for now)
      */
     async sendAppointmentReminder(params: {
         patientId: string;
@@ -121,8 +143,8 @@ export class NotificationService {
             });
         }
 
-        // Send via provider with template
-        const result = await this.provider.sendMessage({
+        // Send via Twilio (Official Templates)
+        const result = await this.twilioProvider.sendMessage({
             to: patient.phone,
             message: '', // Not used with templates
             templateId: params.templateId,
@@ -143,7 +165,8 @@ export class NotificationService {
                 type: 'text',
                 sender: 'clinic',
                 status: result.success ? 'sent' : 'failed',
-                externalId: result.messageId
+                externalId: result.messageId,
+                provider: 'twilio'
             }
         });
 
@@ -167,6 +190,113 @@ export class NotificationService {
         return result;
     }
 
+    // Proxy methods for Controller
+    async getBaileysStatus() {
+        return this.baileysProvider.getStatus();
+    }
+
+    async logoutBaileys() {
+        return this.baileysProvider.logout();
+    }
+
+    /**
+     * Handle incoming messages from Baileys (Official WhatsApp)
+     */
+    private async onBaileysMessage(m: any) {
+        try {
+            const { messages, type } = m;
+            if (type !== 'notify') return;
+
+            for (const msg of messages) {
+                // Ignore messages sent by us
+                if (msg.key.fromMe) continue;
+
+                const remoteJid = msg.key.remoteJid;
+                if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue;
+
+                // Extract phone number (+595...)
+                const phone = '+' + remoteJid.split('@')[0];
+
+                // Extract message content
+                const content = msg.message?.conversation ||
+                    msg.message?.extendedTextMessage?.text ||
+                    msg.message?.imageMessage?.caption ||
+                    (msg.message?.imageMessage ? '(Imagen)' : '') ||
+                    (msg.message?.audioMessage ? '(Audio)' : '') ||
+                    (msg.message?.videoMessage ? '(Video)' : '') ||
+                    (msg.message?.documentMessage ? '(Documento)' : '') ||
+                    '';
+
+                if (!content && !msg.message?.imageMessage && !msg.message?.audioMessage) continue;
+
+                // Find patient by phone
+                // We might need to handle phone number formatting (Twilio vs Baileys vs DB)
+                // Assuming DB stores them with + prefix or we normalize
+                const patient = await prisma.patient.findFirst({
+                    where: {
+                        phone: {
+                            contains: phone.replace('+', '') // Flexible match
+                        }
+                    }
+                });
+
+                if (!patient) {
+                    console.log(`⚠️ Received message from unknown number: ${phone}`);
+                    continue;
+                }
+
+                // Find or create conversation
+                let conversation = await prisma.conversation.findFirst({
+                    where: { patientId: patient.id, channel: 'whatsapp' }
+                });
+
+                if (!conversation) {
+                    conversation = await prisma.conversation.create({
+                        data: {
+                            patientId: patient.id,
+                            channel: 'whatsapp',
+                            status: 'open'
+                        }
+                    });
+                }
+
+                // Save message
+                await prisma.conversationMessage.create({
+                    data: {
+                        conversationId: conversation.id,
+                        content: content,
+                        type: this.getBaileysMessageType(msg.message),
+                        sender: 'patient',
+                        status: 'sent',
+                        externalId: msg.key.id,
+                        provider: 'baileys'
+                    }
+                });
+
+                // Update conversation last message timestamp
+                await prisma.conversation.update({
+                    where: { id: conversation.id },
+                    data: {
+                        lastMessageAt: new Date(),
+                        unreadCount: { increment: 1 }
+                    }
+                });
+
+                console.log(`📥 Saved incoming Baileys message from ${patient.firstName} ${patient.lastName}`);
+            }
+        } catch (error) {
+            console.error('Error processing Baileys message:', error);
+        }
+    }
+
+    private getBaileysMessageType(message: any): string {
+        if (message?.imageMessage) return 'image';
+        if (message?.audioMessage) return 'audio';
+        if (message?.videoMessage) return 'video';
+        if (message?.documentMessage) return 'document';
+        return 'text';
+    }
+
     private getMessageType(url: string): string {
         const ext = url.split('.').pop()?.toLowerCase();
         if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '')) return 'image';
@@ -175,3 +305,5 @@ export class NotificationService {
         return 'document';
     }
 }
+
+export const notificationService = new NotificationService();

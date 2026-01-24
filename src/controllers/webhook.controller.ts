@@ -109,7 +109,8 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
                         mediaType: MediaContentType0,
                         mediaSize: size,
                         externalUrl: MediaUrl0,
-                        status: 'delivered'
+                        status: 'delivered',
+                        provider: 'twilio'
                     }
                 });
 
@@ -125,7 +126,8 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
                         type: 'text',
                         sender: 'patient',
                         status: 'delivered',
-                        externalUrl: MediaUrl0
+                        externalUrl: MediaUrl0,
+                        provider: 'twilio'
                     }
                 });
                 console.log(`⚠️ Saved fallback text message due to media error`);
@@ -138,7 +140,8 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
                     content: Body,
                     type: 'text',
                     sender: 'patient',
-                    status: 'delivered'
+                    status: 'delivered',
+                    provider: 'twilio'
                 }
             });
 
@@ -199,7 +202,8 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                     content: '✅ Confirmó asistencia',
                     type: 'text',
                     sender: 'patient',
-                    status: 'delivered'
+                    status: 'delivered',
+                    provider: 'twilio'
                 }
             });
             break;
@@ -234,7 +238,8 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                     content: '❌ Canceló la cita',
                     type: 'text',
                     sender: 'patient',
-                    status: 'delivered'
+                    status: 'delivered',
+                    provider: 'twilio'
                 }
             });
             break;
@@ -251,7 +256,8 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                     content: '📅 Solicitó reagendar',
                     type: 'text',
                     sender: 'patient',
-                    status: 'delivered'
+                    status: 'delivered',
+                    provider: 'twilio'
                 }
             });
 

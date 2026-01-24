@@ -408,6 +408,9 @@ model ConversationMessage {
   id             String       @id @default(uuid())
   conversationId String       @map("conversation_id")
   content        String
+  provider       String       @default("twilio") // "twilio" | "baileys"
+  fromNumber     String?      @map("from_number")
+  toNumber       String?      @map("to_number")
   type           String       @default("text")
   sender         String
   status         String       @default("sent")

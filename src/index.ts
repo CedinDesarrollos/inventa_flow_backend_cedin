@@ -27,8 +27,8 @@ import conversationRoutes from './routes/conversation.routes';
 import webhookRoutes from './routes/webhook.routes';
 import reminderRoutes from './routes/reminder.routes';
 import automationRoutes from './routes/automation.routes';
+import whatsappRoutes from './routes/whatsapp.routes';
 import { startReminderCron } from './jobs/reminderCron';
-import { initBirthdayCron } from './jobs/birthdayCron';
 import { initNpsCron } from './jobs/npsCron';
 
 // ... (existing imports)
@@ -114,6 +114,8 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/automations', automationRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
+import { initBirthdayCron } from './jobs/birthdayCron';
 
 // Health Check
 app.get('/api/health', (req, res) => {
