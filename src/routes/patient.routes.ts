@@ -14,6 +14,7 @@ router.get('/', authenticateToken, getPatients);
 router.get('/:id', authenticateToken, getPatientById);
 router.post('/', authenticateToken, createPatient);
 router.put('/:id', authenticateToken, updatePatient);
+router.patch('/:id', authenticateToken, updatePatient);
 router.delete('/:id', authenticateToken, deletePatient);
 
 export default router;
