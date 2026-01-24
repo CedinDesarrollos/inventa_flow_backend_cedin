@@ -16,6 +16,7 @@ export class BaileysProvider implements IWhatsAppProvider {
     name = 'baileys';
     private sock: WASocket | null = null;
     private lidToPhone: Map<string, string> = new Map();
+    private lidMapPath = path.join(process.env.UPLOAD_DIR || path.resolve('public/uploads'), 'baileys_lid_map.json');
     private qrCode: string | null = null;
     private status: 'connected' | 'connecting' | 'disconnected' | 'waiting_qr' = 'disconnected';
 
@@ -50,6 +51,15 @@ export class BaileysProvider implements IWhatsAppProvider {
     constructor() {
         if (!fs.existsSync(this.authDir)) {
             fs.mkdirSync(this.authDir, { recursive: true });
+        }
+    }
+
+    private saveLidMap() {
+        try {
+            const obj = Object.fromEntries(this.lidToPhone);
+            fs.writeFileSync(this.lidMapPath, JSON.stringify(obj, null, 2));
+        } catch (e) {
+            console.error('Failed to save LID map', e);
         }
     }
 
@@ -99,19 +109,25 @@ export class BaileysProvider implements IWhatsAppProvider {
 
         // Listen for contacts to build LID map
         this.sock.ev.on('contacts.upsert', (contacts: Contact[]) => {
+            let changed = false;
             for (const contact of contacts) {
                 if (contact.lid && contact.id) { // contact.id is usually the phone number JID
                     this.lidToPhone.set(contact.lid, contact.id.split('@')[0]);
+                    changed = true;
                 }
             }
+            if (changed) this.saveLidMap();
         });
 
         this.sock.ev.on('contacts.update', (updates: Partial<Contact>[]) => {
+            let changed = false;
             for (const update of updates) {
                 if (update.lid && update.id) {
                     this.lidToPhone.set(update.lid, update.id.split('@')[0]);
+                    changed = true;
                 }
             }
+            if (changed) this.saveLidMap();
         });
 
         // Listen for incoming messages
