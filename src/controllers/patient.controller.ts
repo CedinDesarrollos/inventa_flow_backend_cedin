@@ -192,11 +192,31 @@ export const mergePatients = async (req: Request, res: Response) => {
         }
 
         await prisma.$transaction(async (tx) => {
-            // 1. Transfer Conversations
+            // 1. Transfer Conversations (Initial Move)
             await tx.conversation.updateMany({
                 where: { patientId: id },
                 data: { patientId: targetPatientId }
             });
+
+            // 1.1 Consolidate Conversations (Merge duplicates if any)
+            const allConversations = await tx.conversation.findMany({
+                where: { patientId: targetPatientId },
+                orderBy: { lastMessageAt: 'desc' },
+                include: { messages: true }
+            });
+
+            if (allConversations.length > 1) {
+                const [mainConv, ...duplicates] = allConversations;
+                for (const dup of duplicates) {
+                    // Move messages to main conversation
+                    await tx.conversationMessage.updateMany({
+                        where: { conversationId: dup.id },
+                        data: { conversationId: mainConv.id }
+                    });
+                    // Delete the now empty duplicate conversation
+                    await tx.conversation.delete({ where: { id: dup.id } });
+                }
+            }
 
             // 2. Transfer Appointments
             await tx.appointment.updateMany({
