@@ -30,7 +30,8 @@ export const getPatients = async (req: Request, res: Response) => {
                 OR: [
                     { firstName: { contains: searchStr, mode: 'insensitive' } },
                     { lastName: { contains: searchStr, mode: 'insensitive' } },
-                    { identifier: { contains: searchStr, mode: 'insensitive' } }
+                    { identifier: { contains: searchStr, mode: 'insensitive' } },
+                    { phone: { contains: searchStr } }
                 ]
             });
         }
