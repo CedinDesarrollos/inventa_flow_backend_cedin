@@ -34,16 +34,46 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     ];
 
-    if (
-        file.mimetype.startsWith('image/') ||
-        file.mimetype.startsWith('audio/') ||
-        file.mimetype.startsWith('video/') ||
-        allowedTypes.includes(file.mimetype)
-    ) {
-        cb(null, true);
-    } else {
-        cb(new Error('Tipo de archivo no permitido. Solo imágenes, audio, video, PDF y Word.'));
+    const allowedExtensions = {
+        'image/': ['.jpg', '.jpeg', '.png', '.gif', '.webp'],
+        'audio/': ['.mp3', '.wav', '.ogg'],
+        'video/': ['.mp4', '.mov', '.webm'],
+        'application/pdf': ['.pdf'],
+        'application/msword': ['.doc'],
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
+    };
+
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    // Check MIME type
+    let isValidMime = false;
+    let allowedExtsForMime: string[] = [];
+
+    if (allowedTypes.includes(file.mimetype)) {
+        isValidMime = true;
+        // @ts-ignore
+        allowedExtsForMime = allowedExtensions[file.mimetype] || [];
+    } else if (file.mimetype.startsWith('image/')) {
+        isValidMime = true;
+        allowedExtsForMime = allowedExtensions['image/'];
+    } else if (file.mimetype.startsWith('audio/')) {
+        isValidMime = true;
+        allowedExtsForMime = allowedExtensions['audio/'];
+    } else if (file.mimetype.startsWith('video/')) {
+        isValidMime = true;
+        allowedExtsForMime = allowedExtensions['video/'];
     }
+
+    if (!isValidMime) {
+        return cb(new Error('Tipo de archivo no permitido. Solo imágenes, audio, video, PDF y Word.'));
+    }
+
+    // Strict Extension Check
+    if (!allowedExtsForMime.includes(ext)) {
+        return cb(new Error(`La extensión del archivo (${ext}) no coincide con su tipo (${file.mimetype}).`));
+    }
+
+    cb(null, true);
 };
 
 export const upload = multer({

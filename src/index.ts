@@ -32,8 +32,29 @@ import { initBirthdayCron } from './jobs/birthdayCron';
 import { initNpsCron } from './jobs/npsCron';
 
 // ... (existing imports)
+import rateLimit from 'express-rate-limit'; // Add this import
+
+const requiredEnvVars = ['JWT_SECRET', 'CORS_ORIGIN'];
+const missingEnvVars = requiredEnvVars.filter(env => !process.env[env]);
+
+if (missingEnvVars.length > 0) {
+    console.error(`CRITICAL SECURITY ERROR: Missing required environment variables: ${missingEnvVars.join(', ')}`);
+    process.exit(1);
+}
+
+// Rate Limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    message: 'Demasiadas peticiones desde esta IP, por favor intente de nuevo en 15 minutos.'
+});
 
 const app = express();
+
+app.use(limiter); // Apply rate limiting globally
+
 // Enable trust proxy for Railway (to get correct protocol/host)
 app.set('trust proxy', 1);
 
