@@ -63,6 +63,16 @@ export class BaileysProvider implements IWhatsAppProvider {
         }
     }
 
+    getCurrentUserJid(): string | undefined {
+        return this.sock?.user?.id;
+    }
+
+    getCurrentPhone(): string | undefined {
+        const jid = this.sock?.user?.id;
+        if (!jid) return undefined;
+        return jid.split(':')[0].split('@')[0];
+    }
+
     async initialize(): Promise<void> {
         await this.connectToWhatsApp();
     }

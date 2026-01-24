@@ -255,6 +255,13 @@ export class NotificationService {
                 // Phone number digits
                 let phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
 
+                // IGNORE SELF (DYNAMICALLY)
+                const myConnectedPhone = this.baileysProvider.getCurrentPhone();
+                if (myConnectedPhone && (phoneDigits === myConnectedPhone || phoneDigits.endsWith(myConnectedPhone))) {
+                    console.log(`🛑 [IGNORE-SELF] Skipping message from connected number: ${phoneDigits}`);
+                    continue;
+                }
+
                 // LID Resolution
                 let resolvedPhone: string | null = null;
                 if (remoteJid.endsWith('@lid')) {
