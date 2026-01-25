@@ -22,6 +22,8 @@ const professionalSchema = z.object({
     phone: z.string().optional(),
     color: z.string().min(1, "Color requerido"),
     status: z.enum(['active', 'inactive']).default('active'),
+    gender: z.string().optional(),
+    prefix: z.string().optional(),
     workingHours: z.union([
         scheduleItemSchema,
         z.array(scheduleItemSchema)
@@ -102,6 +104,8 @@ export const createProfessional = async (req: Request, res: Response) => {
                     phone: data.phone,
                     color: data.color,
                     status: data.status,
+                    gender: data.gender,
+                    prefix: data.prefix,
                     workingHours: data.workingHours ? JSON.parse(JSON.stringify(data.workingHours)) : undefined,
                     isActive: data.status === 'active'
                 }
@@ -150,6 +154,8 @@ export const updateProfessional = async (req: Request, res: Response) => {
                     phone: data.phone,
                     color: data.color,
                     status: data.status,
+                    gender: data.gender,
+                    prefix: data.prefix,
                     workingHours: data.workingHours ? JSON.parse(JSON.stringify(data.workingHours)) : undefined,
                     isActive: data.status === 'active' // Sync boolean
                 }

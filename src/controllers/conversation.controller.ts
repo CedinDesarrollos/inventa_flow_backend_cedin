@@ -17,7 +17,10 @@ export const getConversations = async (req: Request, res: Response) => {
                         phone: true,
                         insurance: true,
                         appointments: {
-                            where: { date: { gte: new Date() } },
+                            where: {
+                                date: { gte: new Date() },
+                                status: { notIn: ['CANCELLED', 'NO_SHOW'] }
+                            },
                             orderBy: { date: 'asc' },
                             take: 1
                         }
