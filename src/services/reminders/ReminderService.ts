@@ -60,17 +60,29 @@ export class ReminderService {
      * - At 6pm: Send ALL appointments for tomorrow (batch)
      * - Other hours: Send appointments in 23-25 hour window
      */
+    /**
+     * Find appointments eligible for reminders
+     * DUAL STRATEGY:
+     * - At 6pm: Send ALL appointments for tomorrow (batch)
+     * - Other hours: Send appointments in 23-25 hour window
+     */
     async findEligibleAppointments() {
         const settings = await this.getSystemSettings();
         const timezone = settings.timezone;
+
+        // Fix: Use keepLocalTime to map Local Time directly to UTC slot
+        // e.g. 10:30 Asuncion -> 10:30 UTC.
+        // This matches the DB convention where "10:30" is stored as "10:30 UTC".
         const now = DateTime.now().setZone(timezone);
-        const currentHour = now.hour;
+        const nowAsUtcSlot = now.setZone('UTC', { keepLocalTime: true });
+
+        const currentHour = now.hour; // Use local hour to decide strategy
 
         // STRATEGY 1: BATCH AT 6PM - Send ALL tomorrow's appointments
         if (currentHour === 18) {
             console.log('🎯 Running BATCH mode: sending all reminders for tomorrow');
 
-            const tomorrow = now.plus({ days: 1 }).startOf('day');
+            const tomorrow = nowAsUtcSlot.plus({ days: 1 }).startOf('day');
             const endOfTomorrow = tomorrow.endOf('day');
 
             return await prisma.appointment.findMany({
@@ -106,8 +118,8 @@ export class ReminderService {
         console.log('⏰ Running NORMAL mode: 23-25 hour window');
 
         const hoursBefore = settings.reminder_hours_before;
-        const targetStart = now.plus({ hours: hoursBefore - 1 });
-        const targetEnd = now.plus({ hours: hoursBefore + 1 });
+        const targetStart = nowAsUtcSlot.plus({ hours: hoursBefore - 1 });
+        const targetEnd = nowAsUtcSlot.plus({ hours: hoursBefore + 1 });
 
         return await prisma.appointment.findMany({
             where: {
@@ -143,20 +155,25 @@ export class ReminderService {
      */
     private formatTemplateParams(appointment: any, settings: SystemSettings): string[] {
         const { patient, doctor, branch, date } = appointment;
-        const timezone = settings.timezone;
+
+        // Fix: Use UTC directly because the DB stores "Visual Time" in UTC slot.
+        // We do NOT want to shift it to local timezone, or it will be wrong.
+        const outputZone = 'UTC';
 
         // {{1}} = Patient name (e.g., "Ana García")
         const patientName = `${patient.firstName} ${patient.lastName}`;
 
         // {{2}} = Day and date (e.g., "martes 22 de enero")
+        // Use outputZone (UTC) to preserve the stored time
         const appointmentDate = DateTime.fromJSDate(date)
-            .setZone(timezone)
+            .setZone(outputZone)
             .setLocale('es')
             .toFormat("cccc d 'de' MMMM");
 
         // {{3}} = Time (e.g., "10:00 am")
+        // Use outputZone (UTC) to preserve the stored time
         const appointmentTime = DateTime.fromJSDate(date)
-            .setZone(timezone)
+            .setZone(outputZone)
             .toFormat('hh:mm a');
 
         // {{4}} = Professional with prefix (e.g., "el Dr. Jorge Jara")
