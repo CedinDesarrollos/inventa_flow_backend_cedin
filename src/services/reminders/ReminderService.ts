@@ -21,25 +21,36 @@ export class ReminderService {
     /**
      * Get system settings for reminders
      */
+    /**
+     * Get system settings for reminders
+     */
     private async getSystemSettings(): Promise<SystemSettings> {
+        // Fetch specific keys and legacy config
         const settings = await prisma.systemSetting.findMany({
             where: {
                 key: {
-                    in: ['timezone', 'reminder_hours_before', 'reminder_window_start', 'reminder_window_end']
+                    in: ['timezone', 'reminder_hours_before', 'reminder_window_start', 'reminder_window_end', 'CLINIC_CONFIG']
                 }
             }
         });
 
+        // Parse legacy config if exists
+        const legacySetting = settings.find(s => s.key === 'CLINIC_CONFIG');
+        const legacyConfig = legacySetting && legacySetting.value ? (legacySetting.value as any) : {};
+
         const settingsMap = settings.reduce((acc, setting) => {
-            acc[setting.key] = JSON.parse(setting.value as string);
+            if (setting.key !== 'CLINIC_CONFIG') {
+                acc[setting.key] = setting.value; // Individual keys take precedence if they exist
+            }
             return acc;
         }, {} as any);
 
+        // Merge: Default < Legacy < Individual
         return {
-            timezone: settingsMap.timezone || 'America/Asuncion',
-            reminder_hours_before: settingsMap.reminder_hours_before || 24,
-            reminder_window_start: settingsMap.reminder_window_start || '09:00',
-            reminder_window_end: settingsMap.reminder_window_end || '18:00'
+            timezone: settingsMap.timezone || legacyConfig.timezone || 'America/Asuncion',
+            reminder_hours_before: settingsMap.reminder_hours_before || legacyConfig.reminder_hours_before || 24,
+            reminder_window_start: settingsMap.reminder_window_start || legacyConfig.reminder_window_start || '09:00',
+            reminder_window_end: settingsMap.reminder_window_end || legacyConfig.reminder_window_end || '18:00'
         };
     }
 
@@ -254,11 +265,28 @@ export class ReminderService {
 
         try {
             // Check if reminders are enabled
-            const enabledSetting = await prisma.systemSetting.findUnique({
-                where: { key: 'reminders_enabled' }
+            // Check if reminders are enabled (Check both individual key and legacy blob)
+            const settings = await prisma.systemSetting.findMany({
+                where: {
+                    key: {
+                        in: ['reminders_enabled', 'CLINIC_CONFIG']
+                    }
+                }
             });
 
-            const remindersEnabled = enabledSetting ? JSON.parse(enabledSetting.value as string) : false;
+            const indivEnabled = settings.find(s => s.key === 'reminders_enabled');
+            const legacySetting = settings.find(s => s.key === 'CLINIC_CONFIG');
+            const legacyConfig = legacySetting && legacySetting.value ? (legacySetting.value as any) : {};
+
+            // Logic: If individual key exists, use it. Else check legacy. Default false.
+            let remindersEnabled = false;
+
+            if (indivEnabled) {
+                remindersEnabled = JSON.parse(indivEnabled.value as string);
+            } else if (legacyConfig.reminders_enabled !== undefined) {
+                remindersEnabled = legacyConfig.reminders_enabled;
+                console.log('ℹ️  Using LEGACY config for reminders_enabled');
+            }
 
             if (!remindersEnabled) {
                 console.log('⏸️  Reminders are DISABLED in system settings. Skipping send.');
