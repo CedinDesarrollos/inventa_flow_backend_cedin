@@ -5,7 +5,8 @@ import makeWASocket, {
     WASocket,
     ConnectionState,
     proto,
-    Contact
+    Contact,
+    downloadMediaMessage
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode';
@@ -261,6 +262,25 @@ export class BaileysProvider implements IWhatsAppProvider {
             }
         } catch (err) {
             console.error('Error locking out', err);
+        }
+    }
+
+    async downloadMedia(message: any): Promise<Buffer | null> {
+        try {
+            const buffer = await downloadMediaMessage(
+                message,
+                'buffer',
+                {},
+                {
+                    logger: console as any,
+                    // Cast to any because the type definition can be strict vs runtime optionality
+                    reuploadRequest: this.sock?.updateMediaMessage as any
+                }
+            );
+            return buffer as Buffer;
+        } catch (error) {
+            console.error('Failed to download media message', error);
+            return null;
         }
     }
 }

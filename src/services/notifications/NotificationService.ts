@@ -2,6 +2,8 @@ import { TwilioProvider } from './providers/TwilioProvider';
 import { BaileysProvider } from './providers/BaileysProvider';
 import { IWhatsAppProvider } from './providers/IWhatsAppProvider';
 import { prisma } from '../../lib/prisma';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class NotificationService {
     private twilioProvider: TwilioProvider;
@@ -356,17 +358,62 @@ export class NotificationService {
                     }
                 }
 
+                // Media Handling
+                let mediaUrl = undefined;
+                let downloadedContent = content; // Default to text content
+
+                if (['image', 'video', 'audio', 'document', 'sticker'].includes(msgType)) {
+                    console.log(`📥 [MEDIA] Downloading ${msgType}...`);
+                    try {
+                        const buffer = await this.baileysProvider.downloadMedia(msg.message);
+                        if (buffer) {
+                            const uploadDir = path.join(process.env.UPLOAD_DIR || 'public/uploads', 'whatsapp');
+                            if (!fs.existsSync(uploadDir)) {
+                                fs.mkdirSync(uploadDir, { recursive: true });
+                            }
+
+                            // Generate filename
+                            const extMap: Record<string, string> = {
+                                'image': 'jpg',
+                                'video': 'mp4',
+                                'audio': 'mp3', // WhatsApp audio is usually ogg/mp3
+                                'document': 'pdf', // Default fallback
+                                'sticker': 'webp'
+                            };
+
+                            // Try to detect extension accurately from mimetype if possible, otherwise simple map
+                            const ext = extMap[msgType] || 'bin';
+                            const fileName = `wa_${Date.now()}_${msg.key.id}.${ext}`;
+                            const filePath = path.join(uploadDir, fileName);
+
+                            fs.writeFileSync(filePath, buffer);
+                            mediaUrl = `/uploads/whatsapp/${fileName}`;
+                            console.log(`✅ [MEDIA] Locked & Saved: ${mediaUrl}`);
+
+                            // Update content ref to show it's a file if empty
+                            if (!downloadedContent) {
+                                downloadedContent = `(Archivo Adjunto: ${msgType})`;
+                            }
+                        } else {
+                            console.warn('⚠️ [MEDIA] Failed to download buffer');
+                        }
+                    } catch (e) {
+                        console.error('❌ [MEDIA] Error processing media:', e);
+                    }
+                }
+
                 // Save message
                 await prisma.conversationMessage.create({
                     data: {
                         conversationId: conversation.id,
-                        content: content || (msgType === 'text' ? '' : `(Archivo: ${msgType})`),
+                        content: downloadedContent || (msgType === 'text' ? '' : `(Archivo: ${msgType})`),
                         type: msgType,
                         sender: fromMe ? 'clinic' : 'patient',
                         status: 'delivered',
                         externalId: msg.key.id,
                         provider: 'baileys',
-                        sentAt: msgDate
+                        sentAt: msgDate,
+                        mediaUrl: mediaUrl // Save the URL
                     }
                 });
 
