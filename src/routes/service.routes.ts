@@ -8,8 +8,8 @@ const router = Router();
 router.use(authenticateToken);
 
 router.get('/', getServices);
-router.post('/', requireRole(['ADMIN', 'PROFESSIONAL', 'DEVELOPER']), createService);
-router.put('/:id', requireRole(['ADMIN', 'PROFESSIONAL', 'DEVELOPER']), updateService);
-router.delete('/:id', requireRole(['ADMIN', 'PROFESSIONAL', 'DEVELOPER']), deleteService);
+router.post('/', requireRole(['ADMIN', 'PROFESSIONAL', 'DEVELOPER', 'SECRETARY']), createService);
+router.put('/:id', requireRole(['ADMIN', 'PROFESSIONAL', 'DEVELOPER', 'SECRETARY']), updateService);
+router.delete('/:id', requireRole(['ADMIN', 'PROFESSIONAL', 'DEVELOPER', 'SECRETARY']), deleteService);
 
 export default router;

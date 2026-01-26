@@ -8,8 +8,8 @@ router.use(authenticateToken);
 
 router.get('/', getTariffs);
 router.get('/:insuranceId/:serviceId', getTariff);
-router.post('/', requireRole(['ADMIN', 'DEVELOPER']), createTariff);
-router.put('/:insuranceId/:serviceId', requireRole(['ADMIN', 'DEVELOPER']), updateTariff);
-router.delete('/:insuranceId/:serviceId', requireRole(['ADMIN', 'DEVELOPER']), deleteTariff);
+router.post('/', requireRole(['ADMIN', 'DEVELOPER', 'SECRETARY']), createTariff);
+router.put('/:insuranceId/:serviceId', requireRole(['ADMIN', 'DEVELOPER', 'SECRETARY']), updateTariff);
+router.delete('/:insuranceId/:serviceId', requireRole(['ADMIN', 'DEVELOPER', 'SECRETARY']), deleteTariff);
 
 export default router;
