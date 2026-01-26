@@ -100,7 +100,19 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
         }
 
         // Handle Quick Reply button responses (Phase 2)
-        const payload = ButtonPayload || Body;
+        let payload = ButtonPayload || Body || '';
+
+        // Normalize text input if no button payload
+        if (!ButtonPayload && payload) {
+            const text = payload.trim().toLowerCase();
+            if (text === 'confirmo' || text === 'confirmar' || text === 'si' || text === 'sí' || text === 'confirmado') {
+                payload = 'confirm_yes';
+            } else if (text === 'cancelar' || text === 'cancelo' || text === 'no' || text === 'no podré') {
+                payload = 'confirm_cancel';
+            } else if (text === 'reagendar' || text === 'cambiar') {
+                payload = 'confirm_reschedule';
+            }
+        }
 
         if (payload === 'confirm_yes' || payload === 'confirm_cancel' || payload === 'confirm_reschedule') {
             await handleQuickReplyResponse(conversation, patient, payload);
