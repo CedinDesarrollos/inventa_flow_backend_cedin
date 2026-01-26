@@ -213,8 +213,14 @@ export class ReminderService {
             const templateParams = this.formatTemplateParams(appointment, settings);
 
             // Send via Twilio
+            // Determine sender number from env vars (handle potential 'whatsapp:' prefix in env)
+            let senderNumber = process.env.TWILIO_WHATSAPP_NUMBER || process.env.TWILIO_PHONE_NUMBER;
+            if (senderNumber && senderNumber.startsWith('whatsapp:')) {
+                senderNumber = senderNumber.replace('whatsapp:', '');
+            }
+
             const message = await twilioClient.messages.create({
-                from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+                from: `whatsapp:${senderNumber}`,
                 to: `whatsapp:${patient.phone}`,
                 contentSid: TEMPLATE_SID,
                 contentVariables: JSON.stringify({
