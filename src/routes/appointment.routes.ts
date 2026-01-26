@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAppointments, createAppointment, updateAppointment, updateAppointmentStatus, deleteAppointment } from '../controllers/appointment.controller';
+import { getAppointments, createAppointment, updateAppointment, updateAppointmentStatus, deleteAppointment, closeDailyAgenda } from '../controllers/appointment.controller';
 
 const router = Router();
 
@@ -8,5 +8,7 @@ router.post('/', createAppointment);
 router.put('/:id', updateAppointment);
 router.patch('/:id/status', updateAppointmentStatus);
 router.delete('/:id', deleteAppointment);
+
+router.post('/close-agenda', closeDailyAgenda);
 
 export default router;

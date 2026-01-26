@@ -192,3 +192,53 @@ export const deleteAppointment = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error al eliminar cita' });
     }
 };
+
+export const closeDailyAgenda = async (req: Request, res: Response) => {
+    try {
+        const { cutOffTime } = req.body;
+
+        // Default to now if not provided, but frontend should provide it for consistency
+        const limitDate = cutOffTime ? new Date(cutOffTime) : new Date();
+
+        // Safety buffer: Ensure we don't close future appointments accidentally if frontend sends wrong time
+        // Actually, requirement is: "Already passed their time".
+        // The frontend calculates "Now - 30m". We trust the frontend's explicit "Until XX:XX" 
+        // but we ensure it's not in the future relative to server time + small margin.
+
+        const now = new Date();
+        if (limitDate > now) {
+            return res.status(400).json({ error: 'La hora de corte no puede ser futura.' });
+        }
+
+        const startOfDay = new Date(limitDate);
+        startOfDay.setHours(0, 0, 0, 0);
+
+        // Update queries
+        const result = await prisma.appointment.updateMany({
+            where: {
+                date: {
+                    gte: startOfDay,
+                    lte: limitDate
+                },
+                status: {
+                    in: ['SCHEDULED', 'CONFIRMED']
+                }
+            },
+            data: {
+                status: 'NO_SHOW'
+            }
+        });
+
+        console.log(`Agenda closed until ${limitDate.toISOString()}. Updated ${result.count} appointments.`);
+
+        res.json({
+            message: 'Agenda cerrada correctamente',
+            count: result.count,
+            cutOffTime: limitDate
+        });
+
+    } catch (error) {
+        console.error('Error closing agenda:', error);
+        res.status(500).json({ error: 'Error al cerrar la agenda' });
+    }
+};
