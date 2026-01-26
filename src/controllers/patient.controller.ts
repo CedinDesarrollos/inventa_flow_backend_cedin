@@ -25,14 +25,19 @@ export const getPatients = async (req: Request, res: Response) => {
         const andConditions: any[] = [];
 
         if (search) {
-            const searchStr = String(search);
-            andConditions.push({
-                OR: [
-                    { firstName: { contains: searchStr, mode: 'insensitive' } },
-                    { lastName: { contains: searchStr, mode: 'insensitive' } },
-                    { identifier: { contains: searchStr, mode: 'insensitive' } },
-                    { phone: { contains: searchStr } }
-                ]
+            const searchTerms = String(search).trim().split(/\s+/);
+
+            // For each term, we require it to match AT LEAST ONE of the fields
+            // AND (Term1 matches (First OR Last OR Id)) AND (Term2 matches (First OR Last OR Id)) ...
+            searchTerms.forEach(term => {
+                andConditions.push({
+                    OR: [
+                        { firstName: { contains: term, mode: 'insensitive' } },
+                        { lastName: { contains: term, mode: 'insensitive' } },
+                        { identifier: { contains: term, mode: 'insensitive' } },
+                        { phone: { contains: term } }
+                    ]
+                });
             });
         }
 
