@@ -110,11 +110,16 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
             }
         }
 
+        // Timezone Fix: The server is in UTC, but the client assumes the hours are Local (-3)
+        // If config says 08:00 (Local), this means 11:00 UTC.
+        // So we need to add 3 hours to the target UTC hour.
+        const TZ_OFFSET = 3;
+
         const scheduleStart = new Date(dayStart);
-        scheduleStart.setHours(workStartHour, 0, 0, 0);
+        scheduleStart.setHours(workStartHour + TZ_OFFSET, 0, 0, 0);
 
         const scheduleEnd = new Date(dayStart);
-        scheduleEnd.setHours(workEndHour, 0, 0, 0);
+        scheduleEnd.setHours(workEndHour + TZ_OFFSET, 0, 0, 0);
 
         // 2. Get existing appointments for this professional on this day
         const appointments = await prisma.appointment.findMany({
