@@ -214,16 +214,22 @@ export const closeDailyAgenda = async (req: Request, res: Response) => {
         startOfDay.setHours(0, 0, 0, 0);
 
         // Update queries
-        const result = await prisma.appointment.updateMany({
-            where: {
-                date: {
-                    gte: startOfDay,
-                    lte: limitDate
-                },
-                status: {
-                    in: ['SCHEDULED', 'CONFIRMED']
-                }
+        // Build Where Clause
+        const whereClause: any = {
+            date: {
+                gte: startOfDay,
+                lte: limitDate
             },
+            status: 'SCHEDULED' // Only close SCHEDULED appointments. CONFIRMED means they are in waiting room.
+        };
+
+        if (req.body.doctorId) {
+            whereClause.doctorId = req.body.doctorId;
+        }
+
+        // Update queries
+        const result = await prisma.appointment.updateMany({
+            where: whereClause,
             data: {
                 status: 'NO_SHOW'
             }
