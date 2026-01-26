@@ -135,6 +135,8 @@ app.use('/api/automations', automationRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 import { initBirthdayCron } from './jobs/birthdayCron';
 
+import { initConversationCleanup } from './jobs/conversationCleanup';
+
 // Health Check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -162,6 +164,9 @@ app.listen(port, () => {
 
     // Start NPS cron job
     initNpsCron();
+
+    // Start Conversation Cleanup Job (Auto-Close)
+    initConversationCleanup();
 
     // Initialize Global Notification Service (WhatsApp connections)
     notificationService.initialize().catch(err => console.error('Failed to initialize NotificationService:', err));
