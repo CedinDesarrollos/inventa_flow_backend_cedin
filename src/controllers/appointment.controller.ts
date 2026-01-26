@@ -25,7 +25,7 @@ const updateStatusSchema = z.object({
 export const getAppointments = async (req: Request, res: Response) => {
     console.log('Controller: getAppointments called', req.query);
     try {
-        const { start, end, doctorId, patientId, status, branchId } = req.query;
+        const { start, end, doctorId, patientId, status, branchId, paymentStatus } = req.query;
 
         const where: any = {};
 
@@ -48,6 +48,10 @@ export const getAppointments = async (req: Request, res: Response) => {
             } else {
                 where.status = statusStr;
             }
+        }
+
+        if (paymentStatus) {
+            where.paymentStatus = String(paymentStatus);
         }
 
         if (branchId) where.branchId = String(branchId);

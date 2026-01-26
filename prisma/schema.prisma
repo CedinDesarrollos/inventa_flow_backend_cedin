@@ -167,6 +167,7 @@ model Appointment {
   duration           Int
   type               AppointmentType
   status             AppointmentStatus     @default(SCHEDULED)
+  paymentStatus      PaymentStatus         @default(PENDING) @map("payment_status")
   reason             String?
   notes              String?
   createdAt          DateTime              @default(now()) @map("created_at")
@@ -495,6 +496,15 @@ enum AppointmentStatus {
   NO_SHOW
   IN_PROGRESS
   BILLED
+
+  @@schema("inventa_clinical_app")
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIAL
+  REFUNDED
 
   @@schema("inventa_clinical_app")
 }

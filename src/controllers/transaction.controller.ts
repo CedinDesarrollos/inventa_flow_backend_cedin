@@ -14,6 +14,7 @@ const transactionItemSchema = z.object({
 const createTransactionSchema = z.object({
     patientId: z.string().uuid(),
     doctorId: z.string().uuid().optional(),
+    appointmentId: z.string().uuid().optional(),
     type: z.enum(['TICKET', 'INVOICE']),
     paymentMethod: z.enum(['CASH', 'CARD', 'INSURANCE']),
     paymentCode: z.string().optional(),
@@ -146,51 +147,67 @@ export const createTransaction = async (req: Request, res: Response) => {
         console.log('User from auth middleware:', (req as any).user);
         console.log('Author ID to be saved:', userId);
 
-        const transaction = await prisma.transaction.create({
-            data: {
-                patientId: data.patientId,
-                authorId: userId,
-                doctorId: data.doctorId,
-                type: data.type,
-                paymentMethod: data.paymentMethod,
-                paymentCode: data.paymentCode,
-                paymentReceiptUrl: data.paymentReceiptUrl,
-                billingRuc: data.billingRuc,
-                billingName: data.billingName,
-                billingAddress: data.billingAddress,
-                subtotal: data.subtotal,
-                savings: data.savings,
-                exoneratedAmount: data.exoneratedAmount,
-                total: data.total,
-                observation: data.observation,
-                items: {
-                    create: data.items.map(item => ({
-                        serviceId: item.serviceId,
-                        quantity: item.quantity,
-                        unitPrice: item.unitPrice,
-                        coverage: item.coverage,
-                        copay: item.copay
-                    }))
-                }
-            },
-            include: {
-                patient: true,
-                author: {
-                    select: {
-                        id: true,
-                        fullName: true,
-                        email: true
+        // Start transaction to ensure atomicity
+        const result = await prisma.$transaction(async (tx) => {
+            const transaction = await tx.transaction.create({
+                data: {
+                    patientId: data.patientId,
+                    authorId: userId,
+                    doctorId: data.doctorId,
+                    type: data.type,
+                    paymentMethod: data.paymentMethod,
+                    paymentCode: data.paymentCode,
+                    paymentReceiptUrl: data.paymentReceiptUrl,
+                    billingRuc: data.billingRuc,
+                    billingName: data.billingName,
+                    billingAddress: data.billingAddress,
+                    subtotal: data.subtotal,
+                    savings: data.savings,
+                    exoneratedAmount: data.exoneratedAmount,
+                    total: data.total,
+                    observation: data.observation,
+                    items: {
+                        create: data.items.map(item => ({
+                            serviceId: item.serviceId,
+                            quantity: item.quantity,
+                            unitPrice: item.unitPrice,
+                            coverage: item.coverage,
+                            copay: item.copay
+                        }))
                     }
                 },
-                items: {
-                    include: {
-                        service: true
+                include: {
+                    patient: true,
+                    author: {
+                        select: {
+                            id: true,
+                            fullName: true,
+                            email: true
+                        }
+                    },
+                    items: {
+                        include: {
+                            service: true
+                        }
                     }
                 }
+            });
+
+            // Update Appointment Payment Status if linked
+            if (data.appointmentId) {
+                await tx.appointment.update({
+                    where: { id: data.appointmentId },
+                    data: {
+                        paymentStatus: 'PAID'
+                    }
+                });
+                console.log(`Updated appointment ${data.appointmentId} payment status to PAID`);
             }
+
+            return transaction;
         });
 
-        res.status(201).json(transaction);
+        res.status(201).json(result);
     } catch (error) {
         if (error instanceof z.ZodError) {
             console.error('Validation error:', error.issues);
