@@ -209,7 +209,8 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                     date: { gte: new Date() },
                     status: { in: ['SCHEDULED', 'CONFIRMED'] }
                 },
-                orderBy: { date: 'asc' }
+                orderBy: { date: 'asc' },
+                include: { reminders: true }
             });
 
             if (appointment) {
@@ -218,6 +219,15 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                     data: { status: 'CONFIRMED' }
                 });
                 console.log(`✅ Appointment ${appointment.id} confirmed by patient`);
+
+                // Update Reminder Status
+                const lastReminder = appointment.reminders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                if (lastReminder) {
+                    await prisma.appointmentReminder.update({
+                        where: { id: lastReminder.id },
+                        data: { status: 'confirmed' }
+                    });
+                }
             }
 
             await notificationService.sendMessage({
@@ -245,7 +255,8 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                     date: { gte: new Date() },
                     status: { in: ['SCHEDULED', 'CONFIRMED'] }
                 },
-                orderBy: { date: 'asc' }
+                orderBy: { date: 'asc' },
+                include: { reminders: true }
             });
 
             if (appointmentToCancel) {
@@ -254,6 +265,15 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                     data: { status: 'CANCELLED' }
                 });
                 console.log(`❌ Appointment ${appointmentToCancel.id} cancelled by patient`);
+
+                // Update Reminder Status
+                const lastReminder = appointmentToCancel.reminders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                if (lastReminder) {
+                    await prisma.appointmentReminder.update({
+                        where: { id: lastReminder.id },
+                        data: { status: 'cancelled' }
+                    });
+                }
             }
 
             await notificationService.sendMessage({
@@ -274,6 +294,28 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
             break;
 
         case 'confirm_reschedule':
+            // Find appointment to mark reminder
+            const appointmentToReschedule = await prisma.appointment.findFirst({
+                where: {
+                    patientId: patient.id,
+                    date: { gte: new Date() },
+                    status: { in: ['SCHEDULED', 'CONFIRMED'] }
+                },
+                orderBy: { date: 'asc' },
+                include: { reminders: true }
+            });
+
+            if (appointmentToReschedule) {
+                // Update Reminder Status ONLY (Appointment status stays SCHEDULED until human changes it)
+                const lastReminder = appointmentToReschedule.reminders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                if (lastReminder) {
+                    await prisma.appointmentReminder.update({
+                        where: { id: lastReminder.id },
+                        data: { status: 'rescheduled' }
+                    });
+                }
+            }
+
             await notificationService.sendMessage({
                 patientId: patient.id,
                 message: 'Entendido. Un miembro de nuestro equipo se comunicará contigo para reagendar. 📅'
