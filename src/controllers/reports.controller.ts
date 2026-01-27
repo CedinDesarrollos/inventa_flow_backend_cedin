@@ -292,8 +292,8 @@ export const getReminderStats = async (req: Request, res: Response) => {
                 date: {
                     gte: start,
                     lte: end
-                },
-                type: { not: 'BLOQUEO' as any } // Exclude blocks if necessary
+                }
+                // type: { not: 'BLOQUEO' as any } // Removed to prevent Enum Error
             },
             include: {
                 reminders: true
