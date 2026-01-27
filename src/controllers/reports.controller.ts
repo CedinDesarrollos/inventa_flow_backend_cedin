@@ -286,77 +286,161 @@ export const getReminderStats = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Invalid date format' });
         }
 
-        // 1. Fetch Appointments (Agenda Universe)
+        // 1. Fetch Appointments to define the universe of "Expected" reminders
         const appointments = await prisma.appointment.findMany({
             where: {
                 date: {
                     gte: start,
                     lte: end
-                }
+                },
+                type: { not: 'BLOQUEO' as any } // Exclude blocks if necessary
             },
-            select: {
-                id: true,
-                status: true
+            include: {
+                reminders: true
             }
         });
 
-        // 2. Fetch Actual Sent Reminders (Action Universe)
-        // We look for reminders linked to the appointments in the range. 
-        // This is more accurate than just date range on reminders because it links effort to the specific appointment slot.
-        const appointmentIds = appointments.map(a => a.id);
-
-        let sentRemindersCount = 0;
-        if (appointmentIds.length > 0) {
-            sentRemindersCount = await prisma.appointmentReminder.count({
-                where: {
-                    appointmentId: { in: appointmentIds },
-                    status: {
-                        in: ['sent', 'delivered', 'read', 'confirmed', 'cancelled', 'rescheduled'] // successfully sent statuses
-                    }
-                }
-            });
-        }
-
-        // 3. Calculate Outcomes based on Appointment Status
+        // 2. Aggregate Stats
         const stats = {
             totalAppointments: appointments.length,
-            totalSent: sentRemindersCount,
+            totalSent: 0,
             confirmed: 0,
             cancelled: 0,
             rescheduled: 0,
             pending: 0,
-            attended: 0
+            noResponse: 0
         };
 
         appointments.forEach(app => {
-            const s = app.status;
-            if (s === 'CONFIRMED') stats.confirmed++;
-            else if (s === 'CANCELLED' || s === 'NO_SHOW') stats.cancelled++;
-            else if (s === 'SCHEDULED') stats.pending++;
-            else if (s === 'COMPLETED' || s === 'BILLED' || s === 'IN_PROGRESS') stats.attended++;
+            // Find the most relevant reminder (last one sent?)
+            // We are interested in the 24h reminder mostly
+            const reminder = app.reminders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+            if (reminder && ['sent', 'delivered', 'read', 'confirmed', 'cancelled', 'rescheduled'].includes(reminder.status)) {
+                stats.totalSent++;
+
+                if (reminder.status === 'confirmed') stats.confirmed++;
+                else if (reminder.status === 'cancelled') stats.cancelled++;
+                else if (reminder.status === 'rescheduled') stats.rescheduled++;
+                else stats.noResponse++; // sent/delivered/read but no specific action
+            } else {
+                // If no reminder sent or pending, check Appointment status as fallback?
+                // The user specifically asks about the REMINDER performance.
+                // So if we rely on reminder.status, we are accurate to the "Change" requested via reminder.
+                // However, manual confirmations might update Appointment but not Reminder.
+                // Let's check Appointment status if Reminder is just "Sent/Read"
+
+                if (reminder && ['sent', 'delivered', 'read'].includes(reminder.status)) {
+                    if (app.status === 'CONFIRMED') stats.confirmed++;
+                    else if (app.status === 'CANCELLED') stats.cancelled++;
+                    else stats.noResponse++;
+                }
+            }
         });
 
-        const effectiveConfirmed = stats.confirmed + stats.attended;
+        // If we strictly want to count "How many CONFIRMED", we should prioritize the explicit status
+        // Current logic above is a bit mixed. Let's simplify:
+        // Use Appointment Result as the ultimate truth, but categorize "Reschedule" from Reminder if available?
+        // Actually, User wants to know "How many Canceled/Rescheduled" via the system.
+
+        // Re-Do Aggregation specifically on Reminders for clear "Campaign" stats
+        // We will query the Reminders directly to get the pure "Bot/Automation" performance.
+
+        const reminders = await prisma.appointmentReminder.findMany({
+            where: {
+                appointment: {
+                    date: {
+                        gte: start,
+                        lte: end
+                    }
+                }
+            }
+        });
+
+        const finalStats = {
+            total: 0,
+            confirmed: 0,
+            cancelled: 0,
+            rescheduled: 0,
+            no_response: 0
+        };
+
+        reminders.forEach(r => {
+            if (['sent', 'delivered', 'read', 'confirmed', 'cancelled', 'rescheduled'].includes(r.status)) {
+                finalStats.total++;
+                if (r.status === 'confirmed') finalStats.confirmed++;
+                else if (r.status === 'cancelled') finalStats.cancelled++;
+                else if (r.status === 'rescheduled') finalStats.rescheduled++;
+                else finalStats.no_response++;
+            }
+        });
 
         res.json({
-            totalAppointments: stats.totalAppointments,
-            totalSent: stats.totalSent,
-            distribution: {
-                confirmed: effectiveConfirmed,
-                cancelled: stats.cancelled,
-                pending: stats.pending
-            },
+            summary: finalStats,
             rates: {
-                // Rate over Total Appointments (General Efficiency)
-                confirmationRate: stats.totalAppointments > 0 ? Math.round((effectiveConfirmed / stats.totalAppointments) * 100) : 0,
-                cancellationRate: stats.totalAppointments > 0 ? Math.round((stats.cancelled / stats.totalAppointments) * 100) : 0,
-                // Coverage (Sent / Total)
-                coverageRate: stats.totalAppointments > 0 ? Math.round((stats.totalSent / stats.totalAppointments) * 100) : 0
+                confirmation: finalStats.total > 0 ? Math.round((finalStats.confirmed / finalStats.total) * 100) : 0,
+                response: finalStats.total > 0 ? Math.round(((finalStats.total - finalStats.no_response) / finalStats.total) * 100) : 0
             }
         });
 
     } catch (error) {
         console.error('Get Reminder Stats Error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getReminderDetails = async (req: Request, res: Response) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ message: 'Start date and end date are required' });
+        }
+
+        const start = new Date(String(startDate));
+        const end = new Date(String(endDate));
+
+        if (!isValid(start) || !isValid(end)) {
+            return res.status(400).json({ message: 'Invalid date format' });
+        }
+
+        const reminders = await prisma.appointmentReminder.findMany({
+            where: {
+                appointment: {
+                    date: {
+                        gte: start,
+                        lte: end
+                    }
+                }
+            },
+            include: {
+                appointment: {
+                    include: {
+                        patient: true,
+                        doctor: true
+                    }
+                }
+            },
+            orderBy: {
+                sentAt: 'desc'
+            }
+        });
+
+        const details = reminders.map(r => ({
+            id: r.id,
+            patientName: `${r.appointment.patient.firstName} ${r.appointment.patient.lastName}`,
+            patientPhone: r.appointment.patient.phone,
+            appointmentDate: r.appointment.date,
+            sentAt: r.sentAt,
+            status: r.status, // confirmed, cancelled, rescheduled, sent, read
+            response: r.patientResponse, // Actual text if available
+            appointmentStatus: r.appointment.status // Current real status
+        }));
+
+        res.json(details);
+
+    } catch (error) {
+        console.error('Get Reminder Details Error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };

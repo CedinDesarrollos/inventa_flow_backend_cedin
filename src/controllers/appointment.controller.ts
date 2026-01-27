@@ -11,14 +11,14 @@ const appointmentSchema = z.object({
     date: z.string().datetime(), // ISO 8601
     duration: z.number().int().min(5), // minutes
     type: z.enum(['CONSULTATION', 'FOLLOW_UP', 'PROCEDURE']),
-    status: z.enum(['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
+    status: z.enum(['SCHEDULED', 'CONFIRMED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
     reason: z.string().optional(),
     notes: z.string().optional()
 });
 
 // Validations
 const updateStatusSchema = z.object({
-    status: z.enum(['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'BILLED']),
+    status: z.enum(['SCHEDULED', 'CONFIRMED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'BILLED']),
     secretaryNote: z.string().optional()
 });
 
