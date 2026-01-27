@@ -97,7 +97,7 @@ export class ReminderService {
                     reminders: {
                         none: {
                             status: {
-                                in: ['sent', 'delivered', 'read']
+                                in: ['sent', 'delivered', 'read', 'confirmed', 'cancelled', 'rescheduled']
                             }
                         }
                     }
@@ -133,7 +133,7 @@ export class ReminderService {
                 reminders: {
                     none: {
                         status: {
-                            in: ['sent', 'delivered', 'read']
+                            in: ['sent', 'delivered', 'read', 'confirmed', 'cancelled', 'rescheduled']
                         }
                     }
                 }
