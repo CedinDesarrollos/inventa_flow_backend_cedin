@@ -354,6 +354,9 @@ export const getReminderStats = async (req: Request, res: Response) => {
                         lte: end
                     }
                 }
+            },
+            include: {
+                appointment: true
             }
         });
 
@@ -368,10 +371,20 @@ export const getReminderStats = async (req: Request, res: Response) => {
         reminders.forEach(r => {
             if (['sent', 'delivered', 'read', 'confirmed', 'cancelled', 'rescheduled'].includes(r.status)) {
                 finalStats.total++;
-                if (r.status === 'confirmed') finalStats.confirmed++;
-                else if (r.status === 'cancelled') finalStats.cancelled++;
-                else if (r.status === 'rescheduled') finalStats.rescheduled++;
-                else finalStats.no_response++;
+
+                // Check both Reminder Status (bot) AND Appointment Status (final outcome)
+                if (r.status === 'confirmed' || r.appointment.status === 'CONFIRMED') {
+                    finalStats.confirmed++;
+                }
+                else if (r.status === 'cancelled' || r.appointment.status === 'CANCELLED') {
+                    finalStats.cancelled++;
+                }
+                else if (r.status === 'rescheduled') {
+                    finalStats.rescheduled++;
+                }
+                else {
+                    finalStats.no_response++;
+                }
             }
         });
 
