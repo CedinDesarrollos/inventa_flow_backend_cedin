@@ -375,11 +375,23 @@ export const getReminderStats = async (req: Request, res: Response) => {
             }
         });
 
+        // Calculate Rates
+        const coverageRate = appointments.length > 0 ? Math.round((finalStats.total / appointments.length) * 100) : 0;
+        const confirmationRate = finalStats.total > 0 ? Math.round((finalStats.confirmed / finalStats.total) * 100) : 0;
+        const cancellationRate = finalStats.total > 0 ? Math.round((finalStats.cancelled / finalStats.total) * 100) : 0;
+
         res.json({
-            summary: finalStats,
+            totalAppointments: appointments.length,
+            totalSent: finalStats.total,
+            distribution: {
+                confirmed: finalStats.confirmed,
+                cancelled: finalStats.cancelled, // Include rescheduled here? Or ignore? UI only has 3 buckets. Let's keep strict cancelled.
+                pending: finalStats.no_response + finalStats.rescheduled // Treat rescheduled as pending/other or cancelled? Usually pending resolution.
+            },
             rates: {
-                confirmation: finalStats.total > 0 ? Math.round((finalStats.confirmed / finalStats.total) * 100) : 0,
-                response: finalStats.total > 0 ? Math.round(((finalStats.total - finalStats.no_response) / finalStats.total) * 100) : 0
+                confirmationRate,
+                cancellationRate,
+                coverageRate
             }
         });
 
