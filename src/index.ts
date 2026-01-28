@@ -31,6 +31,7 @@ import webhookRoutes from './routes/webhook.routes';
 import reminderRoutes from './routes/reminder.routes';
 import automationRoutes from './routes/automation.routes';
 import whatsappRoutes from './routes/whatsapp.routes';
+import medicationRoutes from './routes/medication.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { initNpsCron } from './jobs/npsCron';
 import { notificationService } from './services/notifications/NotificationService';
@@ -133,6 +134,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/automations', automationRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/medications', medicationRoutes);
 import { initBirthdayCron } from './jobs/birthdayCron';
 
 import { initConversationCleanup } from './jobs/conversationCleanup';
