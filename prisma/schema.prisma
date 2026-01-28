@@ -48,6 +48,7 @@ model Professional {
   color              String
   status             String   @default("active")
   workingHours       Json?    @map("working_hours")
+  prescriptionHeader Json?    @map("prescription_header")
   integrations       Json?
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
