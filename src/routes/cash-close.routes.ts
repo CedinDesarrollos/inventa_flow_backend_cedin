@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getCashCloseStatus, signCashClose } from '../controllers/cash-close.controller';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken } from '../middleware/auth.middleware';
 
 const router = Router();
 
