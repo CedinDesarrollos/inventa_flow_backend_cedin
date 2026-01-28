@@ -78,6 +78,7 @@ model Branch {
   appointments  Appointment[]
   medicalVisits MedicalVisit[]
   patients      Patient[]
+  cashCloses    CashClose[]
 
   @@map("branches")
   @@schema("inventa_clinical_app")
@@ -534,6 +535,13 @@ enum TransactionStatus {
   @@schema("inventa_clinical_app")
 }
 
+
+
+enum VisitStatus {
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
 
   @@schema("inventa_clinical_app")
 }
