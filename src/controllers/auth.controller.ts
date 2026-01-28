@@ -87,6 +87,9 @@ export const login = async (req: Request, res: Response) => {
                     { username: identifier },
                     { rut: identifier }
                 ]
+            },
+            include: {
+                professional: true
             }
         });
 
@@ -113,7 +116,8 @@ export const login = async (req: Request, res: Response) => {
                 username: user.username,
                 fullName: user.fullName,
                 role: user.role,
-                mustChangePassword: user.mustChangePassword
+                mustChangePassword: user.mustChangePassword,
+                professional: user.professional
             }
         });
     } catch (error) {
