@@ -1,13 +1,13 @@
 import { IWhatsAppProvider } from './IWhatsAppProvider';
 import makeWASocket, {
     DisconnectReason,
-    useMultiFileAuthState,
     WASocket,
     ConnectionState,
     proto,
     Contact,
     downloadMediaMessage
 } from '@whiskeysockets/baileys';
+import { usePrismaAuthState } from './usePrismaAuthState';
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode';
 import * as fs from 'fs';
@@ -41,8 +41,6 @@ export class BaileysProvider implements IWhatsAppProvider {
         return null;
     }
 
-    private authDir = process.env.BAILEYS_AUTH_DIR ||
-        path.join(process.env.UPLOAD_DIR || path.resolve('public/uploads'), 'baileys_auth_info');
     private messageHandler: ((msg: any) => void) | null = null;
 
     setMessageHandler(handler: (msg: any) => void) {
@@ -50,9 +48,6 @@ export class BaileysProvider implements IWhatsAppProvider {
     }
 
     constructor() {
-        if (!fs.existsSync(this.authDir)) {
-            fs.mkdirSync(this.authDir, { recursive: true });
-        }
     }
 
     private saveLidMap() {
@@ -80,7 +75,8 @@ export class BaileysProvider implements IWhatsAppProvider {
 
     private async connectToWhatsApp() {
         this.status = 'connecting';
-        const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
+        // Use DB Auth
+        const { state, saveCreds } = await usePrismaAuthState();
 
         this.sock = makeWASocket({
             auth: state,
@@ -256,10 +252,15 @@ export class BaileysProvider implements IWhatsAppProvider {
         try {
             await this.sock?.logout();
             this.status = 'disconnected';
-            // Clean up auth dir
-            if (fs.existsSync(this.authDir)) {
-                fs.rmSync(this.authDir, { recursive: true, force: true });
-            }
+
+            // Clear DB Session (Manual or Prisma helper)
+            // Ideally we'd have a method in usePrismaAuthState or direct prisma call
+            // For simplicity, let's assume logout() wipes creds in memory and we should wipe DB row 'creds'
+            // We need to import prisma for this or add logic to usePrismaAuthState if we refactor.
+            // But simplest:
+            const { prisma } = require('../../../lib/prisma');
+            await prisma.baileysSession.deleteMany({}); // Wipe all sessions on logout
+
         } catch (err) {
             console.error('Error locking out', err);
         }

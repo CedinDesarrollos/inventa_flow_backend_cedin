@@ -576,3 +576,12 @@ model CashClose {
   @@map("cash_closes")
   @@schema("inventa_clinical_app")
 }
+
+model BaileysSession {
+  id        String   @id
+  data      String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("baileys_sessions")
+  @@schema("inventa_clinical_app")
+}
