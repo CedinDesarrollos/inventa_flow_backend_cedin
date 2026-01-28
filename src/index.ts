@@ -32,6 +32,7 @@ import reminderRoutes from './routes/reminder.routes';
 import automationRoutes from './routes/automation.routes';
 import whatsappRoutes from './routes/whatsapp.routes';
 import medicationRoutes from './routes/medication.routes';
+import cashCloseRoutes from './routes/cash-close.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { initNpsCron } from './jobs/npsCron';
 import { notificationService } from './services/notifications/NotificationService';
@@ -135,6 +136,7 @@ app.use('/api/reminders', reminderRoutes);
 app.use('/api/automations', automationRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/medications', medicationRoutes);
+app.use('/api/cash-close', cashCloseRoutes);
 import { initBirthdayCron } from './jobs/birthdayCron';
 
 import { initConversationCleanup } from './jobs/conversationCleanup';

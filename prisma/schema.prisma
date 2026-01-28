@@ -29,6 +29,7 @@ model User {
   professional          Professional?
   processedTransactions Transaction[]          @relation("TransactionAuthor")
   doctorTransactions    Transaction[]          @relation("TransactionDoctor")
+  closes                CashClose[]            @relation("Closer")
   messages              ConversationMessage[]
 
   @@map("users")
@@ -533,11 +534,36 @@ enum TransactionStatus {
   @@schema("inventa_clinical_app")
 }
 
-enum VisitStatus {
-  WAITING
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
 
+  @@schema("inventa_clinical_app")
+}
+
+model CashClose {
+  id              String   @id @default(uuid())
+  date            DateTime // The day being closed (e.g. 2026-01-20 00:00:00)
+  closedAt        DateTime @default(now()) @map("closed_at")
+  closedBy        String   @map("closed_by") // User ID of the cashier/person initializing
+  
+  branchId        String?  @map("branch_id")
+  
+  // Financial Snapshot
+  totalCash       Decimal  @default(0) @map("total_cash") @db.Decimal(10, 2)
+  totalCard       Decimal  @default(0) @map("total_card") @db.Decimal(10, 2)
+  totalInsurance  Decimal  @default(0) @map("total_insurance") @db.Decimal(10, 2)
+  totalAmount     Decimal  @default(0) @map("total_amount") @db.Decimal(10, 2)
+  
+  // Signatures
+  signatures      Json     @default("[]") 
+  // Structure: { role: string, userId: string, name: string, timestamp: string, note: string }[]
+
+  status          String   @default("OPEN") // OPEN, CLOSED, VERIFIED
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  branch          Branch?  @relation(fields: [branchId], references: [id])
+  closer          User     @relation("Closer", fields: [closedBy], references: [id])
+
+  @@map("cash_closes")
   @@schema("inventa_clinical_app")
 }
