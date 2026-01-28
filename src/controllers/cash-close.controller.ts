@@ -4,24 +4,41 @@ import { startOfDay, endOfDay } from 'date-fns';
 
 export const getCashCloseStatus = async (req: Request, res: Response) => {
     try {
-        const { date, branchId } = req.query;
+        const { date, branchId, shift = 'ALL_DAY' } = req.query;
 
         if (!date) {
             return res.status(400).json({ error: 'Date is required' });
         }
 
         const queryDate = new Date(String(date));
-        const start = startOfDay(queryDate);
-        const end = endOfDay(queryDate);
+        // Base ranges for the day
+        let start = startOfDay(queryDate);
+        const dayEnd = endOfDay(queryDate);
+        let end = dayEnd;
+
+        // Apply Shift Logic
+        const shiftType = String(shift);
+        if (shiftType === 'MORNING') {
+            // 00:00 to 13:00
+            end = new Date(start);
+            end.setHours(13, 0, 0, 0);
+        } else if (shiftType === 'AFTERNOON') {
+            // 13:00 to 23:59:59
+            const newStart = new Date(start);
+            newStart.setHours(13, 0, 0, 0);
+            start = newStart;
+        }
+
         const bId = branchId ? String(branchId) : undefined;
 
-        // 1. Check if a Close exists
+        // 1. Check if a Close exists for this shift
         const existingClose = await prisma.cashClose.findFirst({
             where: {
                 date: {
-                    gte: start,
-                    lte: end
+                    gte: startOfDay(queryDate), // Ensure we match the "day"
+                    lte: dayEnd
                 },
+                shift: shiftType, // Match specific shift
                 ...(bId ? { branchId: bId } : {})
             },
             include: {
@@ -31,7 +48,7 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
             }
         });
 
-        // 2. Calculate Live Totals (Always useful to compare)
+        // 2. Calculate Live Totals based on shifted time range
         const transactions = await prisma.transaction.findMany({
             where: {
                 createdAt: {
@@ -39,18 +56,8 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
                     lte: end
                 },
                 status: 'COMPLETED',
-                // Filter by branch if we had branch on transaction, currently inferred via Author or Patient?
-                // Schema has transaction linked to Author/Patient.
-                // Patient has branch.
-                // For simplicity, we assume generic or linked via patient.
-                // Note: Transaction doesn't strictly have branchId in schema provided.
-                // We will rely on Patient's branch or User's (Author's) branch logic if needed.
-                // For now, aggregate ALL if branchId not strictly filtered or implemented deeply.
             }
         });
-
-        // If we strictly need branch filtering, we handle it in application logic or update schema.
-        // Assuming single branch or global for now based on current schema constraints.
 
         const liveTotals = transactions.reduce((acc, t) => {
             acc.total += Number(t.total);
@@ -75,21 +82,23 @@ export const signCashClose = async (req: Request, res: Response) => {
     try {
         // userId comes from auth middleware
         const userId = (req as any).user?.userId;
-        const { date, branchId, note, role, totals } = req.body;
+        const { date, branchId, note, role, totals, shift = 'ALL_DAY' } = req.body;
 
         if (!date || !role) {
             return res.status(400).json({ error: 'Date and Role are required' });
         }
 
         const queryDate = new Date(date);
-        const start = startOfDay(queryDate);
-        const end = endOfDay(queryDate);
+        const dayStart = startOfDay(queryDate);
+        const dayEnd = endOfDay(queryDate);
         const bId = branchId || null;
+        const shiftType = String(shift);
 
-        // Find existing or create
+        // Find existing or create for this specific shift
         let cashClose = await prisma.cashClose.findFirst({
             where: {
-                date: { gte: start, lte: end },
+                date: { gte: dayStart, lte: dayEnd },
+                shift: shiftType,
                 branchId: bId
             }
         });
@@ -115,6 +124,7 @@ export const signCashClose = async (req: Request, res: Response) => {
                 data: {
                     date: queryDate,
                     branchId: bId,
+                    shift: shiftType,
                     closedBy: userId,
                     totalAmount: totals?.total || 0,
                     totalCash: totals?.cash || 0,

@@ -566,6 +566,7 @@ model CashClose {
   // Structure: { role: string, userId: string, name: string, timestamp: string, note: string }[]
 
   status          String   @default("OPEN") // OPEN, CLOSED, VERIFIED
+  shift           String   @default("ALL_DAY") // ALL_DAY, MORNING, AFTERNOON
 
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
