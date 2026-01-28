@@ -29,6 +29,11 @@ const professionalSchema = z.object({
         z.array(scheduleItemSchema)
     ]).optional(),
     createUser: z.boolean().optional(),
+    prescriptionHeader: z.object({
+        title: z.string().optional(),
+        subtitle: z.string().optional(),
+        details: z.string().optional()
+    }).optional().nullable(),
 });
 
 export const getProfessionals = async (req: Request, res: Response) => {
@@ -107,6 +112,7 @@ export const createProfessional = async (req: Request, res: Response) => {
                     gender: data.gender,
                     prefix: data.prefix,
                     workingHours: data.workingHours ? JSON.parse(JSON.stringify(data.workingHours)) : undefined,
+                    prescriptionHeader: data.prescriptionHeader ? JSON.parse(JSON.stringify(data.prescriptionHeader)) : undefined,
                     isActive: data.status === 'active'
                 }
             });
@@ -157,6 +163,7 @@ export const updateProfessional = async (req: Request, res: Response) => {
                     gender: data.gender,
                     prefix: data.prefix,
                     workingHours: data.workingHours ? JSON.parse(JSON.stringify(data.workingHours)) : undefined,
+                    prescriptionHeader: data.prescriptionHeader ? JSON.parse(JSON.stringify(data.prescriptionHeader)) : undefined,
                     isActive: data.status === 'active' // Sync boolean
                 }
             });
