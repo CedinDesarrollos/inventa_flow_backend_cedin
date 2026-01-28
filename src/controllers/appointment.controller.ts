@@ -224,7 +224,7 @@ export const closeDailyAgenda = async (req: Request, res: Response) => {
                 gte: startOfDay,
                 lte: limitDate
             },
-            status: 'SCHEDULED' // Only close SCHEDULED appointments. CONFIRMED means they are in waiting room.
+            status: { in: ['SCHEDULED', 'CONFIRMED'] } // Close both Scheduled and Confirmed (but not Arrived)
         };
 
         if (req.body.doctorId) {
