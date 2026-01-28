@@ -4,7 +4,8 @@ import { z } from 'zod';
 
 // Validation schemas
 const transactionItemSchema = z.object({
-    serviceId: z.string().uuid(),
+    serviceId: z.string().uuid().optional().nullable(),
+    customDescription: z.string().optional(),
     quantity: z.number().int().positive(),
     unitPrice: z.number().min(0), // Allow 0 for free services
     coverage: z.number().min(0),
@@ -168,12 +169,13 @@ export const createTransaction = async (req: Request, res: Response) => {
                     observation: data.observation,
                     items: {
                         create: data.items.map(item => ({
-                            serviceId: item.serviceId,
+                            ...(item.serviceId ? { serviceId: item.serviceId } : {}),
+                            customDescription: item.customDescription,
                             quantity: item.quantity,
                             unitPrice: item.unitPrice,
                             coverage: item.coverage,
                             copay: item.copay
-                        }))
+                        })) as any
                     }
                 },
                 include: {

@@ -356,12 +356,13 @@ model Transaction {
 model TransactionItem {
   id            String      @id @default(uuid())
   transactionId String      @map("transaction_id")
-  serviceId     String      @map("service_id")
+  serviceId     String?     @map("service_id")
+  customDescription String? @map("custom_description")
   quantity      Int         @default(1)
   unitPrice     Decimal     @map("unit_price") @db.Decimal(10, 2)
   coverage      Decimal     @default(0) @db.Decimal(10, 2)
   copay         Decimal     @db.Decimal(10, 2)
-  service       Service     @relation(fields: [serviceId], references: [id])
+  service       Service?    @relation(fields: [serviceId], references: [id])
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@map("transaction_items")
