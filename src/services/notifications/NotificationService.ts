@@ -211,9 +211,34 @@ export class NotificationService {
 
             if (!messages) return;
 
+            // IGNORE HISTORY SYNC to prevent queue clogging (User reported 2-3h delays)
+            if (type === 'append') {
+                console.log('📚 [HISTORY] Skipping history sync batch to prioritize realtime messages.');
+                return;
+            }
+
             for (const msg of messages) {
                 const remoteJid = msg.key.remoteJid;
                 const fromMe = msg.key.fromMe;
+
+                // Check Timestamp for stale messages (Safety net for 'notify' type that is actually old)
+                let msgTs = 0;
+                if (msg.messageTimestamp) {
+                    msgTs = typeof msg.messageTimestamp === 'number'
+                        ? msg.messageTimestamp
+                        : (msg.messageTimestamp as any).toNumber ? (msg.messageTimestamp as any).toNumber() : Number(msg.messageTimestamp);
+                }
+
+                if (msgTs > 0) {
+                    const msgTime = new Date(msgTs * 1000);
+                    const now = new Date();
+                    const diffHours = (now.getTime() - msgTime.getTime()) / (1000 * 60 * 60);
+
+                    if (diffHours > 24) {
+                        console.log(`🕰️ [STALE] Skipping old message from ${msgTime.toISOString()} (${diffHours.toFixed(1)}h old)`);
+                        continue;
+                    }
+                }
 
                 if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.includes('@g.us')) {
                     continue; // Skip status and groups
