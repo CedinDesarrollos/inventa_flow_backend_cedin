@@ -9,6 +9,8 @@ const clinicalRecordSchema = z.object({
     content: z.any(), // Rich Text JSON
     vitalSigns: z.any().optional(), // Vital Signs { weight, height, bp, etc. }
     prescriptionItems: z.array(z.object({
+        id: z.string().optional(),
+        medicationId: z.string().optional(),
         medicationName: z.string(),
         duration: z.string(),
         instructions: z.string(),
