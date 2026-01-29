@@ -251,10 +251,7 @@ export class NotificationService {
                 }
 
                 console.log(`📝 [MSG] ID: ${msg.key.id.slice(-6)} | FromMe: ${fromMe} | JID: ${remoteJid}`);
-                // Helper log to see structure of failing messages
-                if (!extractContent(msg.message) && !this.getBaileysMessageType(msg.message)) {
-                    console.log('⚠️ [EMPTY-CONTENT] Raw Message Structure:', JSON.stringify(msg.message, null, 2));
-                }
+
 
                 // Deep extract content
                 const extractContent = (m: any): string => {
@@ -292,6 +289,11 @@ export class NotificationService {
 
                 const content = extractContent(msg.message);
                 const msgType = this.getBaileysMessageType(msg.message);
+
+                // Log warning if content is empty but type is text (failed extraction)
+                if (!content && msgType === 'text') {
+                    console.log('⚠️ [EMPTY-CONTENT] Raw Message Structure:', JSON.stringify(msg.message, null, 2));
+                }
 
                 // Phone number digits
                 let phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
