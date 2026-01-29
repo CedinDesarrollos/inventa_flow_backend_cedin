@@ -76,8 +76,19 @@ export const deleteInsurance = async (req: Request, res: Response) => {
 export const getInsuranceTariffs = async (req: Request, res: Response) => {
     try {
         const id = req.params.id as string;
+        const { professionalId } = req.query;
+
+        const where: any = { insuranceId: id };
+
+        if (professionalId === 'null' || !professionalId) {
+            where.professionalId = null;
+        } else {
+            where.professionalId = String(professionalId);
+        }
+
         const tariffs = await prisma.tariff.findMany({
-            where: { insuranceId: id }
+            where: where,
+            include: { professional: true } // Optional: include professional info if needed
         });
         res.json(tariffs);
     } catch (error) {
@@ -96,20 +107,19 @@ export const updateInsuranceTariffs = async (req: Request, res: Response) => {
     try {
         const id = req.params.id as string; // Insurance ID
         const tariffsData = tariffBatchSchema.parse(req.body);
+        const { professionalId } = req.query;
 
-        // Transaction to update/upsert tariffs
-        // We delete existing for this insurance and re-insert? Or Upsert?
-        // Upsert is safer but deleting all and re-inserting is easier if we send the full list.
-        // But maybe we only send CHANGED ones?
-        // Let's assume we use upsert per item.
+        // Determine Professional ID (null for global, uuid for specific)
+        const profId = (professionalId && professionalId !== 'null') ? String(professionalId) : null;
 
         const results = await prisma.$transaction(
             tariffsData.map(t =>
                 prisma.tariff.upsert({
                     where: {
-                        insuranceId_serviceId: {
+                        insuranceId_serviceId_professionalId: {
                             insuranceId: id,
-                            serviceId: t.serviceId
+                            serviceId: t.serviceId,
+                            professionalId: profId
                         }
                     },
                     update: {
@@ -119,6 +129,7 @@ export const updateInsuranceTariffs = async (req: Request, res: Response) => {
                     create: {
                         insuranceId: id,
                         serviceId: t.serviceId,
+                        professionalId: profId,
                         coverageType: t.coverageType,
                         value: t.value
                     }

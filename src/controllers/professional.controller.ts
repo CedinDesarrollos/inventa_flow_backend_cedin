@@ -33,14 +33,20 @@ const professionalSchema = z.object({
         title: z.string().optional(),
         subtitle: z.string().optional(),
         details: z.string().optional()
+        details: z.string().optional()
     }).optional().nullable(),
+    acceptedInsurances: z.array(z.string()).optional(),
 });
 
 export const getProfessionals = async (req: Request, res: Response) => {
     try {
         const professionals = await prisma.professional.findMany({
             orderBy: { lastName: 'asc' },
-            include: { user: true }
+            orderBy: { lastName: 'asc' },
+            include: {
+                user: true,
+                acceptedInsurances: true
+            }
         });
         res.json(professionals);
     } catch (error) {
@@ -114,6 +120,10 @@ export const createProfessional = async (req: Request, res: Response) => {
                     workingHours: data.workingHours ? JSON.parse(JSON.stringify(data.workingHours)) : undefined,
                     prescriptionHeader: data.prescriptionHeader ? JSON.parse(JSON.stringify(data.prescriptionHeader)) : undefined,
                     isActive: data.status === 'active'
+                    isActive: data.status === 'active',
+                    acceptedInsurances: data.acceptedInsurances ? {
+                        connect: data.acceptedInsurances.map(id => ({ id }))
+                    } : undefined
                 }
             });
 
@@ -164,8 +174,12 @@ export const updateProfessional = async (req: Request, res: Response) => {
                     prefix: data.prefix,
                     workingHours: data.workingHours ? JSON.parse(JSON.stringify(data.workingHours)) : undefined,
                     prescriptionHeader: data.prescriptionHeader ? JSON.parse(JSON.stringify(data.prescriptionHeader)) : undefined,
-                    isActive: data.status === 'active' // Sync boolean
-                }
+                    isActive: data.status === 'active', // Sync boolean
+                    acceptedInsurances: data.acceptedInsurances ? {
+                        set: data.acceptedInsurances.map(id => ({ id }))
+                    } : undefined
+                },
+                include: { acceptedInsurances: true }
             });
 
             // Sync User Status if Professional Status changed

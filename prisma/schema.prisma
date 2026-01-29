@@ -55,7 +55,10 @@ model Professional {
   isActive           Boolean  @default(true) @map("is_active")
   gender             String?
   prefix             String?
+
   user               User     @relation(fields: [userId], references: [id])
+  acceptedInsurances Insurance[] 
+  tariffs            Tariff[]
 
   @@map("professionals")
   @@schema("inventa_clinical_app")
@@ -143,6 +146,7 @@ model Insurance {
   requiresAuth Boolean   @default(false) @map("requires_auth")
   patients     Patient[]
   tariffs      Tariff[]
+  acceptedByProfessionals Professional[]
 
   @@map("insurances")
   @@schema("inventa_clinical_app")
@@ -152,12 +156,14 @@ model Tariff {
   id           String    @id @default(uuid())
   insuranceId  String    @map("insurance_id")
   serviceId    String    @map("service_id")
+  professionalId String? @map("professional_id")
   coverageType String    @map("coverage_type")
   value        Decimal   @db.Decimal(10, 2)
   insurance    Insurance @relation(fields: [insuranceId], references: [id])
   service      Service   @relation(fields: [serviceId], references: [id])
+  professional Professional? @relation(fields: [professionalId], references: [id])
 
-  @@unique([insuranceId, serviceId])
+  @@unique([insuranceId, serviceId, professionalId])
   @@map("tariffs")
   @@schema("inventa_clinical_app")
 }

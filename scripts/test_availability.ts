@@ -3,85 +3,73 @@ import { prisma } from '../src/lib/prisma';
 
 // Mock params
 const DATE_ISO = '2026-02-17T03:00:00.000Z'; // As sent by frontend (typically)
-// const DATE_ISO = '2026-02-17T00:00:00.000Z'; 
 const USER_ID = 'd1904151-3b5a-41e4-88db-ece8bacf0f93';
-const PROF_ID = '8bb7c898-0efe-4b39-944b-6c2bbd30f2c9';
 const DURATION = 30;
 
-async function checkAvailability(professionalId: string, label: string) {
-    console.log(`\n--- Checking Availability for: ${label} (${professionalId}) ---`);
-
+async function checkNoOffset() {
+    console.log(`\n--- Checking Availability with NO OFFSET (UTC Face Value) ---`);
+    const userId = USER_ID;
     const date = new Date(DATE_ISO);
 
-    // COPY OF LOGIC FROM availability.controller.ts
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
+    // TEST: Remove Offset (Assume 8am = 08:00 UTC because DB has 09:00 UTC for 9am)
+    const workStartHour = 8;
+    const workEndHour = 20; // 8pm
+    const TZ_OFFSET = 0; // Was 3
 
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    const scheduleStart = new Date(date);
+    scheduleStart.setHours(workStartHour + TZ_OFFSET, 0, 0, 0);
 
-    console.log(`Query Interval (Server Local?):`);
-    console.log(`Start: ${dayStart.toString()} (${dayStart.toISOString()})`);
-    console.log(`End:   ${dayEnd.toString()} (${dayEnd.toISOString()})`);
+    const scheduleEnd = new Date(date);
+    scheduleEnd.setHours(workEndHour + TZ_OFFSET, 0, 0, 0);
+
+    console.log(`Schedule Interval: ${scheduleStart.toISOString()} - ${scheduleEnd.toISOString()}`);
 
     const appointments = await prisma.appointment.findMany({
         where: {
-            doctorId: professionalId,
+            doctorId: userId,
             status: { not: 'CANCELLED' },
             date: {
-                gte: dayStart,
-                lte: dayEnd
+                gte: scheduleStart,
+                lte: scheduleEnd
             }
         },
         orderBy: { date: 'asc' }
     });
 
     console.log(`Found ${appointments.length} appointments.`);
-    appointments.forEach(a => console.log(`- Appt: ${a.date.toISOString()} - ${(a.endDate || new Date(a.date.getTime() + a.duration * 60000)).toISOString()}`));
+    appointments.forEach(a => console.log(`- Appt: ${a.date.toISOString()} (Duration: ${a.duration})`));
 
-    // Slot Generation (Simplified)
-    const workStartHour = 8;
-    const workEndHour = 20;
     const slots: string[] = [];
-    const now = new Date();
+    let cursor = new Date(scheduleStart);
 
-    let cursor = new Date(dayStart);
-    cursor.setHours(workStartHour, 0, 0, 0);
-
-    const endOfDay = new Date(dayStart);
-    endOfDay.setHours(workEndHour, 0, 0, 0);
-
-    while (cursor < endOfDay) {
+    while (cursor.getTime() + DURATION * 60000 <= scheduleEnd.getTime()) {
         const slotEnd = new Date(cursor.getTime() + DURATION * 60000);
 
-        // Collision Check
+        // Dynamic Anchor Logic (Option B - reduced)
+        // If collision, jump to end of appt. Else add slot.
         const collision = appointments.find(appt => {
             const apptStart = new Date(appt.date);
             const apptEnd = appt.endDate ? new Date(appt.endDate) : new Date(apptStart.getTime() + appt.duration * 60000);
             return cursor < apptEnd && slotEnd > apptStart;
         });
 
-        if (!collision) {
-            // Only add if future (ignoring for this test)
+        if (collision) {
+            console.log(`  [COLLISION] at ${cursor.toISOString()} with Appt ${collision.date.toISOString()}`);
+            const apptStart = new Date(collision.date);
+            const apptEnd = collision.endDate ? new Date(collision.endDate) : new Date(apptStart.getTime() + collision.duration * 60000);
+            cursor = apptEnd;
+        } else {
             slots.push(cursor.toISOString());
+            cursor = new Date(cursor.getTime() + DURATION * 60000); // 30 min step
         }
-
-        // Increment
-        cursor = new Date(cursor.getTime() + 30 * 60000); // Step 30 min
     }
 
     console.log(`Generated ${slots.length} free slots.`);
-    // Check specific problematic slots
-    const badSlots = ['10:00', '11:00', '11:30', '12:00'];
-    badSlots.forEach(time => {
-        const found = slots.find(s => s.includes(`T${time}`)); // Rough check
-        if (found) console.log(`⚠️  BAD SLOT FOUND: ${time} (Should be taken)`);
-    });
+    slots.forEach(s => console.log(`Slot: ${s}`));
 }
 
 async function main() {
-    await checkAvailability(USER_ID, 'USER ID');
-    await checkAvailability(PROF_ID, 'PROFESSIONAL ID');
+    await checkNoOffset();
 }
 
 main()
