@@ -179,7 +179,8 @@ export const updateAppointmentStatus = async (req: Request, res: Response) => {
             where: { id },
             data: {
                 status,
-                secretaryNote: secretaryNote ?? undefined
+                secretaryNote: secretaryNote ?? undefined,
+                updatedAt: new Date() // Force update timestamp for LIFO sorting
             }
         });
 
