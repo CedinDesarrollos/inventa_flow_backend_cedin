@@ -43,26 +43,40 @@ export const getTariffs = async (req: Request, res: Response) => {
     }
 };
 
+// Helper to get professionalId safely
+const getProfessionalId = (req: Request): string | null => {
+    const raw = req.params.professionalId;
+    if (raw && raw !== 'global') return String(raw);
+    return null;
+};
+
 export const getTariff = async (req: Request, res: Response) => {
     try {
         const { insuranceId, serviceId } = req.params as { insuranceId: string; serviceId: string };
-        const professionalId = req.params.professionalId && req.params.professionalId !== 'global'
-            ? req.params.professionalId
-            : null;
+        const professionalId = getProfessionalId(req);
 
-        const tariff = await prisma.tariff.findUnique({
-            where: {
-                insuranceId_serviceId_professionalId: {
+        let tariff;
+        if (professionalId) {
+            tariff = await prisma.tariff.findUnique({
+                where: {
+                    insuranceId_serviceId_professionalId: {
+                        insuranceId,
+                        serviceId,
+                        professionalId
+                    }
+                },
+                include: { insurance: true, service: true }
+            });
+        } else {
+            tariff = await prisma.tariff.findFirst({
+                where: {
                     insuranceId,
                     serviceId,
-                    professionalId: professionalId as any
-                }
-            },
-            include: {
-                insurance: true,
-                service: true
-            }
-        });
+                    professionalId: null
+                },
+                include: { insurance: true, service: true }
+            });
+        }
 
         if (!tariff) {
             return res.status(404).json({ error: 'Tarifa no encontrada' });
@@ -106,29 +120,47 @@ export const createTariff = async (req: Request, res: Response) => {
 export const updateTariff = async (req: Request, res: Response) => {
     try {
         const { insuranceId, serviceId } = req.params as { insuranceId: string; serviceId: string };
-        const professionalId = req.params.professionalId && req.params.professionalId !== 'global'
-            ? req.params.professionalId
-            : null;
+        const professionalId = getProfessionalId(req);
 
         const data = tariffSchema.partial().parse(req.body);
+        let tariff;
 
-        const tariff = await prisma.tariff.update({
-            where: {
-                insuranceId_serviceId_professionalId: {
+        if (professionalId) {
+            tariff = await prisma.tariff.update({
+                where: {
+                    insuranceId_serviceId_professionalId: {
+                        insuranceId,
+                        serviceId,
+                        professionalId
+                    }
+                },
+                data: {
+                    coverageType: data.coverageType,
+                    value: data.value
+                },
+                include: { insurance: true, service: true }
+            });
+        } else {
+            // Find existing first to get ID
+            const existing = await prisma.tariff.findFirst({
+                where: {
                     insuranceId,
                     serviceId,
-                    professionalId: professionalId as any
+                    professionalId: null
                 }
-            },
-            data: {
-                coverageType: data.coverageType,
-                value: data.value
-            },
-            include: {
-                insurance: true,
-                service: true
-            }
-        });
+            });
+
+            if (!existing) return res.status(404).json({ error: 'Tarifa no encontrada' });
+
+            tariff = await prisma.tariff.update({
+                where: { id: existing.id },
+                data: {
+                    coverageType: data.coverageType,
+                    value: data.value
+                },
+                include: { insurance: true, service: true }
+            });
+        }
 
         res.json(tariff);
     } catch (error) {
@@ -140,19 +172,30 @@ export const updateTariff = async (req: Request, res: Response) => {
 export const deleteTariff = async (req: Request, res: Response) => {
     try {
         const { insuranceId, serviceId } = req.params as { insuranceId: string; serviceId: string };
-        const professionalId = req.params.professionalId && req.params.professionalId !== 'global'
-            ? req.params.professionalId
-            : null;
+        const professionalId = getProfessionalId(req);
 
-        await prisma.tariff.delete({
-            where: {
-                insuranceId_serviceId_professionalId: {
+        if (professionalId) {
+            await prisma.tariff.delete({
+                where: {
+                    insuranceId_serviceId_professionalId: {
+                        insuranceId,
+                        serviceId,
+                        professionalId
+                    }
+                }
+            });
+        } else {
+            const existing = await prisma.tariff.findFirst({
+                where: {
                     insuranceId,
                     serviceId,
-                    professionalId: professionalId as any
+                    professionalId: null
                 }
+            });
+            if (existing) {
+                await prisma.tariff.delete({ where: { id: existing.id } });
             }
-        });
+        }
 
         res.status(204).send();
     } catch (error) {

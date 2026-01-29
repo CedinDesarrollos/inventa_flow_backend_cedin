@@ -112,30 +112,68 @@ export const updateInsuranceTariffs = async (req: Request, res: Response) => {
         // Determine Professional ID (null for global, uuid for specific)
         const profId = (professionalId && professionalId !== 'null') ? String(professionalId) : null;
 
-        const results = await prisma.$transaction(
-            tariffsData.map(t =>
-                prisma.tariff.upsert({
-                    where: {
-                        insuranceId_serviceId_professionalId: {
+        const results = await prisma.$transaction(async (tx) => {
+            const processed = [];
+            for (const t of tariffsData) {
+                if (profId) {
+                    // Specific Professional: UPSERT works fine with string UUID
+                    const res = await tx.tariff.upsert({
+                        where: {
+                            insuranceId_serviceId_professionalId: {
+                                insuranceId: id,
+                                serviceId: t.serviceId,
+                                professionalId: profId
+                            }
+                        },
+                        update: {
+                            coverageType: t.coverageType,
+                            value: t.value
+                        },
+                        create: {
                             insuranceId: id,
                             serviceId: t.serviceId,
-                            professionalId: profId as any
+                            professionalId: profId,
+                            coverageType: t.coverageType,
+                            value: t.value
                         }
-                    },
-                    update: {
-                        coverageType: t.coverageType,
-                        value: t.value
-                    },
-                    create: {
-                        insuranceId: id,
-                        serviceId: t.serviceId,
-                        professionalId: profId,
-                        coverageType: t.coverageType,
-                        value: t.value
+                    });
+                    processed.push(res);
+                } else {
+                    // Global Tariff: UPSERT fails with null in where clause.
+                    // Must find manually then update or create.
+                    const existing = await tx.tariff.findFirst({
+                        where: {
+                            insuranceId: id,
+                            serviceId: t.serviceId,
+                            professionalId: null
+                        }
+                    });
+
+                    if (existing) {
+                        const res = await tx.tariff.update({
+                            where: { id: existing.id },
+                            data: {
+                                coverageType: t.coverageType,
+                                value: t.value
+                            }
+                        });
+                        processed.push(res);
+                    } else {
+                        const res = await tx.tariff.create({
+                            data: {
+                                insuranceId: id,
+                                serviceId: t.serviceId,
+                                professionalId: null,
+                                coverageType: t.coverageType,
+                                value: t.value
+                            }
+                        });
+                        processed.push(res);
                     }
-                })
-            )
-        );
+                }
+            }
+            return processed;
+        });
 
         res.json(results);
     } catch (error) {
