@@ -92,9 +92,12 @@ export class BaileysProvider implements IWhatsAppProvider {
             auth: state,
             printQRInTerminal: true,
             browser: ['InventaFlow', 'Chrome', '1.0.0'],
-            // Improve timeouts
+            // Improve timeouts and stability
             connectTimeoutMs: 60000,
             defaultQueryTimeoutMs: 60000,
+            keepAliveIntervalMs: 30000, // Keep connection alive
+            retryRequestDelayMs: 5000,
+            syncFullHistory: false, // Prevent massive initial syncs blocking the socket
         });
 
         // Listen for credentials update

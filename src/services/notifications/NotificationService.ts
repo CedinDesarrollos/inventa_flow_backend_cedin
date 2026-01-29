@@ -213,7 +213,7 @@ export class NotificationService {
 
             // IGNORE HISTORY SYNC to prevent queue clogging (User reported 2-3h delays)
             if (type === 'append') {
-                console.log('📚 [HISTORY] Skipping history sync batch to prioritize realtime messages.');
+                console.log(`📚 [HISTORY] Skipping history sync batch (${messages?.length} msgs) to prioritize realtime messages.`);
                 return;
             }
 
