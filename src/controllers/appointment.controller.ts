@@ -88,7 +88,11 @@ export const createAppointment = async (req: Request, res: Response) => {
     try {
         const data = appointmentSchema.parse(req.body);
 
-        const start = new Date(data.date);
+        // INPUT SHIFT: Subtract 3 hours to restore Face Value UTC from Frontend's shifted time
+        // Example: Frontend sends 12:00Z (User selected 09:00). We store 09:00Z.
+        const start = new Date(data.date); // 12:00Z
+        start.setTime(start.getTime() - 3 * 3600000); // 09:00Z
+
         const end = new Date(start.getTime() + data.duration * 60000);
 
         // Check availability (overlap) for the doctor
@@ -149,7 +153,7 @@ export const updateAppointment = async (req: Request, res: Response) => {
             where: { id },
             data: {
                 ...data,
-                date: data.date ? new Date(data.date) : undefined,
+                date: data.date ? new Date(new Date(data.date).getTime() - 3 * 3600000) : undefined,
                 // Recalculate endDate if duration or date changes?
                 // For simplicity, if date provided, recalculate.
             }

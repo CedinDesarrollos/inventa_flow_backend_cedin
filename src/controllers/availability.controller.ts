@@ -169,7 +169,10 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
 
             if (!collision) {
                 // Valid slot found
-                slots.push(cursor.toISOString());
+                // OUTPUT SHIFT: Add 3 hours so frontend (-3h) displays correct face value
+                // Example: DB 09:00 -> Output 12:00 -> Frontend sees 09:00
+                const outputTime = new Date(cursor.getTime() + 3 * 3600000);
+                slots.push(outputTime.toISOString());
             }
 
             // Always increment by fixed step to allow flexible scheduling
