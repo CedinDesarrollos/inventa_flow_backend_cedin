@@ -43,7 +43,11 @@ export const getConversations = async (req: Request, res: Response) => {
             channel: conv.channel,
             status: conv.status,
             unreadCount: conv.unreadCount,
-            lastMessage: conv.messages[0] || null,
+            lastMessage: conv.messages[0] ? {
+                ...conv.messages[0],
+                timestamp: conv.messages[0].sentAt.toISOString(),
+                sender: conv.messages[0].sender === 'clinic' ? 'me' : 'patient'
+            } : null,
             tags: conv.tags.map(t => t.tag),
             // Additional context (for UI sidebar)
             nextAppointment: conv.patient.appointments[0]?.date.toISOString() || null,
