@@ -75,14 +75,12 @@ export const getAppointments = async (req: Request, res: Response) => {
             }
         });
 
-        const shiftedAppointments = appointments.map(appt => ({
-            ...appt,
-            date: new Date(appt.date.getTime() + 3 * 3600000),
-            endDate: appt.endDate ? new Date(appt.endDate.getTime() + 3 * 3600000) : null
-        }));
+        // NOTE: We do NOT shift appointments here because the Agenda Component appears to Display UTC Face Value (12:00Z -> 12:00).
+        // The Availability Controller DOES shift (+3) because the DatePicker/Selector displays Local Time (12:00Z -> 09:00).
+        // This hybrid approach solves the "Mixed Frontend Behavior".
 
         console.log(`Backend: Found ${appointments.length} appointments`);
-        res.json(shiftedAppointments);
+        res.json(appointments);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error al obtener citas' });
