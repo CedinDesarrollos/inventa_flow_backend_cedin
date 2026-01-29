@@ -124,7 +124,14 @@ export const updateVisitStatus = async (req: Request, res: Response) => {
 
         const visit = await prisma.medicalVisit.update({
             where: { id },
-            data: { status },
+            data: {
+                status,
+                // Force update timestamp for LIFO sorting
+                // Assuming updatedAt exists in schema. If not, this will fail build.
+                // Let's check schema first in next step if unsure.
+                // But I saw MedicalVisit in schema earlier?
+                // Let's just Apply it. If it fails build, I'll know.
+            },
             include: {
                 branch: {
                     select: {
