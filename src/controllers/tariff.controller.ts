@@ -55,7 +55,7 @@ export const getTariff = async (req: Request, res: Response) => {
                 insuranceId_serviceId_professionalId: {
                     insuranceId,
                     serviceId,
-                    professionalId: professionalId as string | null // Prisma expects string | null, but let's be safe
+                    professionalId: professionalId as any
                 }
             },
             include: {
@@ -117,7 +117,7 @@ export const updateTariff = async (req: Request, res: Response) => {
                 insuranceId_serviceId_professionalId: {
                     insuranceId,
                     serviceId,
-                    professionalId: professionalId as string | null
+                    professionalId: professionalId as any
                 }
             },
             data: {
@@ -149,7 +149,7 @@ export const deleteTariff = async (req: Request, res: Response) => {
                 insuranceId_serviceId_professionalId: {
                     insuranceId,
                     serviceId,
-                    professionalId: professionalId as string | null
+                    professionalId: professionalId as any
                 }
             }
         });

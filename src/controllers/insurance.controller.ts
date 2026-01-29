@@ -119,7 +119,7 @@ export const updateInsuranceTariffs = async (req: Request, res: Response) => {
                         insuranceId_serviceId_professionalId: {
                             insuranceId: id,
                             serviceId: t.serviceId,
-                            professionalId: profId
+                            professionalId: profId as any
                         }
                     },
                     update: {
