@@ -74,6 +74,16 @@ export class BaileysProvider implements IWhatsAppProvider {
     }
 
     private async connectToWhatsApp() {
+        // 1. Cleanup "zombie" socket if exists
+        if (this.sock) {
+            try {
+                this.sock.end(undefined);
+                this.sock = null;
+            } catch (e) {
+                console.error('Error cleaning up existing socket:', e);
+            }
+        }
+
         this.status = 'connecting';
         // Use DB Auth
         const { state, saveCreds } = await usePrismaAuthState();
@@ -81,14 +91,17 @@ export class BaileysProvider implements IWhatsAppProvider {
         this.sock = makeWASocket({
             auth: state,
             printQRInTerminal: true,
-            browser: ['InventaFlow', 'Chrome', '1.0.0']
+            browser: ['InventaFlow', 'Chrome', '1.0.0'],
+            // Improve timeouts
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 60000,
         });
 
         // Listen for credentials update
         this.sock.ev.on('creds.update', saveCreds);
 
         // Connection update
-        this.sock.ev.on('connection.update', (update: Partial<ConnectionState>) => {
+        this.sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
             const { connection, lastDisconnect, qr } = update;
 
             if (qr) {
@@ -98,14 +111,19 @@ export class BaileysProvider implements IWhatsAppProvider {
             }
 
             if (connection === 'close') {
-                this.status = 'disconnected';
-                this.qrCode = null;
                 const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-                console.log('Connection closed due to ', lastDisconnect?.error, ', reconnecting ', shouldReconnect);
+
                 if (shouldReconnect) {
-                    this.connectToWhatsApp();
+                    this.status = 'disconnected';
+                    this.qrCode = null;
+                    console.log('Connection closed due to ', lastDisconnect?.error, ', reconnecting...');
+                    // Add delay before reconnecting to prevent loops
+                    setTimeout(() => this.connectToWhatsApp(), 3000);
                 } else {
                     console.log('Connection closed. You are logged out.');
+                    this.status = 'disconnected';
+                    this.qrCode = null;
+                    await this.logout();
                 }
             } else if (connection === 'open') {
                 this.status = 'connected';
@@ -250,19 +268,25 @@ export class BaileysProvider implements IWhatsAppProvider {
 
     async logout(): Promise<void> {
         try {
-            await this.sock?.logout();
-            this.status = 'disconnected';
+            if (this.sock) {
+                try {
+                    await this.sock.logout();
+                } catch (e) { console.error('Socket logout failed, continuing to DB wipe', e) }
 
-            // Clear DB Session (Manual or Prisma helper)
-            // Ideally we'd have a method in usePrismaAuthState or direct prisma call
-            // For simplicity, let's assume logout() wipes creds in memory and we should wipe DB row 'creds'
-            // We need to import prisma for this or add logic to usePrismaAuthState if we refactor.
-            // But simplest:
+                this.sock.end(undefined);
+                this.sock = null;
+            }
+            this.status = 'disconnected';
+            this.qrCode = null;
+
+            // Clear DB Session
+            console.log('Logging out: Wiping DB Credentials...');
             const { prisma } = require('../../../lib/prisma');
             await prisma.baileysSession.deleteMany({}); // Wipe all sessions on logout
+            console.log('DB Credentials wiped.');
 
         } catch (err) {
-            console.error('Error locking out', err);
+            console.error('Error during logout process', err);
         }
     }
 
