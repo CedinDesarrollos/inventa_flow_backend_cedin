@@ -211,10 +211,9 @@ export class NotificationService {
 
             if (!messages) return;
 
-            // IGNORE HISTORY SYNC to prevent queue clogging (User reported 2-3h delays)
             if (type === 'append') {
-                console.log(`📚 [HISTORY] Skipping history sync batch (${messages?.length} msgs) to prioritize realtime messages.`);
-                return;
+                console.log(`📚 [HISTORY] Processing history sync batch (${messages?.length} msgs)...`);
+                // We allow processing to populate DB
             }
 
             for (const msg of messages) {
@@ -264,7 +263,7 @@ export class NotificationService {
 
                     const actualMsg = m.message || m;
 
-                    const body = actualMsg.conversation ||
+                    return actualMsg.conversation ||
                         actualMsg.extendedTextMessage?.text ||
                         actualMsg.imageMessage?.caption ||
                         actualMsg.videoMessage?.caption ||
@@ -272,38 +271,59 @@ export class NotificationService {
                         actualMsg.templateButtonReplyMessage?.selectedDisplayText ||
                         actualMsg.buttonsResponseMessage?.selectedDisplayText ||
                         actualMsg.listResponseMessage?.title ||
+                        actualMsg.interactiveMessage?.body?.text || // Interactive/Button messages
                         (actualMsg.stickerMessage ? '(Sticker)' : '') ||
                         (actualMsg.imageMessage ? '(Imagen)' : '') ||
                         (actualMsg.audioMessage ? '(Audio)' : '') ||
                         (actualMsg.videoMessage ? '(Video)' : '') ||
                         (actualMsg.documentMessage ? '(Documento)' : '') ||
+                        (actualMsg.locationMessage ? '(Ubicación)' : '') ||
+                        (actualMsg.contactMessage ? '(Contacto)' : '') ||
+                        (actualMsg.contactsArrayMessage ? '(Lista de Contactos)' : '') ||
+                        (actualMsg.reactionMessage ? `(Reacción: ${actualMsg.reactionMessage.text})` : '') ||
+                        (actualMsg.pollCreationMessage ? `(Encuesta: ${actualMsg.pollCreationMessage.name})` : '') ||
+                        (actualMsg.protocolMessage ? '' : '') || // Skip protocol messages text
                         '';
-
-                    if (body) return body;
-
-                    // Fallback recursion if 'message' property exists (unlikely in standardized Baileys but possible)
-                    if (actualMsg.message) return extractContent(actualMsg.message);
-
-                    return '';
                 };
 
-                const content = extractContent(msg.message);
-                const msgType = this.getBaileysMessageType(msg.message);
-
-                // Log warning if content is empty but type is text (failed extraction)
-                if (!content && msgType === 'text') {
-                    console.log('⚠️ [EMPTY-CONTENT] Raw Message Structure:', JSON.stringify(msg.message, null, 2));
+                // Skip pure protocol messages (like history sync end, or simple edits without context)
+                if (msg.message?.protocolMessage) {
+                    console.log('⏭️ [SKIP] Protocol/System Message');
+                    continue;
                 }
+
+                // Skip reaction messages (optional, or save them as text)
+                if (msg.message?.reactionMessage) {
+                    // For now, let's skip reactions to clear up the UI, 
+                    // or we can allow them if the user wants to see emojis. 
+                    // Given the "Empty Bubble" complaint, let's log and maybe skip if no text.
+                    // extractContent handles it above, so it won't be empty if we decide to keep.
+                }
+
+                let content = extractContent(msg.message);
+                const msgType = this.getBaileysMessageType(msg.message);
 
                 // Phone number digits
                 let phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
 
-                // IGNORE SELF (DYNAMICALLY)
+                // ... (existing Ignore Self logic) ...
                 const myConnectedPhone = this.baileysProvider.getCurrentPhone();
                 if (myConnectedPhone && (phoneDigits === myConnectedPhone || phoneDigits.endsWith(myConnectedPhone))) {
                     console.log(`🛑 [IGNORE-SELF] Skipping message from connected number: ${phoneDigits}`);
                     continue;
                 }
+
+                // ... (LID and Patient Logic remains the same) ...
+                // [Insert the existing Patient Lookup Logic here? No, tool replaces blocks. I must respect the flow.]
+                // The tool replaces a chunk. I need to be careful to match context.
+                // I will target the existing extraction block and extend it.
+
+                // ... (Skip to extraction usage) ...
+
+
+                // IGNORE SELF (DYNAMICALLY)
+                // (Already handled above) removed duplicate logic
+
 
                 // LID Resolution
                 let resolvedPhone: string | null = null;
@@ -443,11 +463,20 @@ export class NotificationService {
                     }
                 }
 
+                // Final Content Logic
+                const finalContent = downloadedContent || (msgType === 'text' ? '' : `(Archivo: ${msgType})`);
+
+                // CRITICAL: prevents saving empty messages (e.g. protocol messages or unparsed types)
+                if (!finalContent && !mediaUrl) {
+                    console.log('⚠️ [SKIP-EMPTY] Message has no content and no media. Skipping save.');
+                    continue;
+                }
+
                 // Save message
                 await prisma.conversationMessage.create({
                     data: {
                         conversationId: conversation.id,
-                        content: downloadedContent || (msgType === 'text' ? '' : `(Archivo: ${msgType})`),
+                        content: finalContent,
                         type: msgType,
                         sender: fromMe ? 'clinic' : 'patient',
                         status: 'delivered',
