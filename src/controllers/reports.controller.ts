@@ -14,17 +14,27 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Start date and end date are required' });
         }
 
-        const start = new Date(String(startDate));
-        const end = new Date(String(endDate));
+        let start = new Date(String(startDate));
+        let end = new Date(String(endDate));
 
         if (!isValid(start) || !isValid(end)) {
             return res.status(400).json({ message: 'Invalid date format' });
         }
 
-        // Adjust dates to cover full day if time is not provided/zeroed
-        // Assuming the client sends start of day and end of day, but we ensure it here
-        // If the string contains T00:00:00, it works.
-        // We will trust the input but ensure comparisons are inclusive.
+        // Adjust dates to cover full day (00:00:00 to 23:59:59)
+        // Ensure we don't shift timezone unexpectedly, assume inputs are YYYY-MM-DD
+        // Append time if missing to be safe or set components
+
+        // If string length is 10 (YYYY-MM-DD), force UTC boundaries
+        if (String(startDate).length === 10) {
+            start = new Date(`${startDate}T00:00:00.000Z`);
+        }
+        if (String(endDate).length === 10) {
+            end = new Date(`${endDate}T23:59:59.999Z`);
+        } else {
+            // Fallback for other formats (ensure end covers items)
+            end.setHours(23, 59, 59, 999);
+        }
 
         const branchFilter: any = {};
         if (branchId && branchId !== 'all') {
