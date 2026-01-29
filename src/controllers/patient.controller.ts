@@ -19,13 +19,22 @@ const patientSchema = z.object({
 
 export const getPatients = async (req: Request, res: Response) => {
     try {
-        const { search, doctorId } = req.query;
+        const { search, doctorId, includeLeads } = req.query;
 
         const where: any = {};
         const andConditions: any[] = [];
 
+        // By default, hide intermediate "WhatsApp User" leads (LEAD-BA-)
+        // unless explicitly requested with includeLeads=true
+        if (includeLeads !== 'true') {
+            andConditions.push({
+                identifier: { not: { startsWith: 'LEAD-BA-' } }
+            });
+        }
+
         if (search) {
             const searchTerms = String(search).trim().split(/\s+/);
+
 
             // For each term, we require it to match AT LEAST ONE of the fields
             // AND (Term1 matches (First OR Last OR Id)) AND (Term2 matches (First OR Last OR Id)) ...
