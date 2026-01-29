@@ -60,6 +60,18 @@ export const getAvailableProfessionals = async (req: Request, res: Response) => 
 export const getAvailableSlots = async (req: Request, res: Response) => {
     try {
         const { date, professionalId, duration, branchId } = slotsQuerySchema.parse(req.query);
+
+        // ID Resolution: Ensure we have the USER ID (which is what Appointment.doctorId uses)
+        // The frontend might be sending the Professional ID (UUID) instead of the User ID.
+        let userId = professionalId;
+        const potentialProf = await prisma.professional.findUnique({
+            where: { id: professionalId },
+            select: { userId: true }
+        });
+        if (potentialProf) {
+            userId = potentialProf.userId;
+        }
+
         const dayStart = new Date(date);
         dayStart.setHours(0, 0, 0, 0);
         const dayEnd = new Date(dayStart);
@@ -72,9 +84,9 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
         let workStartHour = 8;
         let workEndHour = 18;
 
-        // Try to find specific configuration
+        // Try to find specific configuration using the resolved User ID
         const professional = await prisma.professional.findFirst({
-            where: { userId: professionalId }
+            where: { userId: userId }
         });
 
         if (professional && professional.workingHours) {
@@ -124,7 +136,7 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
         // 2. Get existing appointments for this professional on this day
         const appointments = await prisma.appointment.findMany({
             where: {
-                doctorId: professionalId,
+                doctorId: userId, // Use resolved User ID
                 status: { not: 'CANCELLED' },
                 date: {
                     gte: dayStart,
