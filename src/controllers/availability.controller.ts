@@ -122,10 +122,10 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
             }
         }
 
-        // Timezone Fix: The server is in UTC, but the client assumes the hours are Local (-3)
-        // If config says 08:00 (Local), this means 11:00 UTC.
-        // So we need to add 3 hours to the target UTC hour.
-        const TZ_OFFSET = 3;
+        // Timezone Fix: The migration stored legacy appointments as "Face Value UTC" (e.g. 09:00 stored as 09:00Z).
+        // If we apply a shift (e.g. +3), we look at 12:00Z which is wrong relative to the data.
+        // We align logic to use the Face Value UTC hours directly.
+        const TZ_OFFSET = 0;
 
         const scheduleStart = new Date(dayStart);
         scheduleStart.setHours(workStartHour + TZ_OFFSET, 0, 0, 0);
@@ -148,14 +148,10 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
             }
         });
 
-        // 3. Calculate Slots (Dynamic Anchoring)
-        // Strategy: Iterate from scheduleStart. 
-        // If current time overlaps with an appointment, jump to appointment end.
-        // Else, checking if slot fits. If fits, add to list and jump by duration (or custom step).
-        // For Dynamic Anchoring (Option B), we specifically want to anchor to:
-        // - Start of day
-        // - End of previous appointment
-
+        // 3. Calculate Slots (Grid Search Strategy)
+        // User needs flexible start times (e.g. 9:30) even if grid isn't perfectly packed.
+        // We iterate by a small step (e.g. 10 mins) to find all valid start times.
+        const SLOT_STEP = 10; // Minutes
         const slots: string[] = [];
         let cursor = new Date(scheduleStart);
 
@@ -167,33 +163,18 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
                 const apptStart = new Date(appt.date);
                 const apptEnd = appt.endDate ? new Date(appt.endDate) : new Date(apptStart.getTime() + appt.duration * 60000);
 
-                // Allow touching edges? Usually start == apptEnd is fine.
                 // Collision if: (Cursor < ApptEnd) AND (SlotEnd > ApptStart)
                 return cursor < apptEnd && slotEnd > apptStart;
             });
 
-            if (collision) {
-                // Determine jump
-                const apptStart = new Date(collision.date);
-                const apptEnd = collision.endDate ? new Date(collision.endDate) : new Date(apptStart.getTime() + collision.duration * 60000);
-
-                // If cursor is before appointment start, we have a gap SMALLER than duration.
-                // Move cursor to appointment END to try finding next valid slot.
-                // This effectively "anchors" the next check to the end of the existing busy block.
-                cursor = apptEnd;
-            } else {
+            if (!collision) {
                 // Valid slot found
                 slots.push(cursor.toISOString());
-
-                // Advance cursor. 
-                // For "Fixed Grid", we would do: cursor = new Date(cursor.getTime() + STEP);
-                // For "Dynamic Anchoring" (to pack appointments), we CAN simply offer this slot and advance by STEP or Duration.
-                // To minimize gaps, we suggest slots starting immediately after.
-                // However, user might want to see options every 15 mins?
-                // Option B strict: Only show start times that align with "Just Now" or "After Appointment".
-                // Let's implement a hybrid: Move by duration to show consecutive slots.
-                cursor = new Date(cursor.getTime() + duration * 60000);
             }
+
+            // Always increment by fixed step to allow flexible scheduling
+            // (e.g. can start at 9:00, 9:10, 9:20, 9:30...)
+            cursor = new Date(cursor.getTime() + SLOT_STEP * 60000);
         }
 
         res.json(slots);
