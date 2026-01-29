@@ -122,16 +122,21 @@ export const updateVisitStatus = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Estado inválido' });
         }
 
+        // Prepare update data
+        let updateData: any = {
+            status,
+            updatedAt: new Date() // Force timestamps for LIFO
+        };
+
+        if (status === 'IN_PROGRESS') {
+            updateData.startedAt = new Date();
+        } else if (status === 'COMPLETED') {
+            updateData.completedAt = new Date();
+        }
+
         const visit = await prisma.medicalVisit.update({
             where: { id },
-            data: {
-                status,
-                // Force update timestamp for LIFO sorting
-                // Assuming updatedAt exists in schema. If not, this will fail build.
-                // Let's check schema first in next step if unsure.
-                // But I saw MedicalVisit in schema earlier?
-                // Let's just Apply it. If it fails build, I'll know.
-            },
+            data: updateData,
             include: {
                 branch: {
                     select: {

@@ -189,6 +189,8 @@ model Appointment {
   externalId         String?               @map("external_id")
   legacy_tipoReserva String?               @map("legacy_tipo_reserva")
   secretaryNote      String?               @map("secretary_note")
+  startedAt          DateTime?             @map("started_at")
+  completedAt        DateTime?             @map("completed_at")
   reminders          AppointmentReminder[]
   branch             Branch?               @relation(fields: [branchId], references: [id])
   doctor             User?                 @relation(fields: [doctorId], references: [id])
@@ -386,6 +388,8 @@ model MedicalVisit {
   professionalId String      @map("professional_id")
   notes          String?
   status         VisitStatus @default(WAITING)
+  startedAt      DateTime?   @map("started_at")
+  completedAt    DateTime?   @map("completed_at")
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
   branch         Branch      @relation(fields: [branchId], references: [id])

@@ -175,13 +175,35 @@ export const updateAppointmentStatus = async (req: Request, res: Response) => {
         const { id } = req.params as { id: string };
         const { status, secretaryNote } = updateStatusSchema.parse(req.body);
 
+        // Prepare update data
+        let updateData: any = {
+            status,
+            secretaryNote: secretaryNote ?? undefined,
+            updatedAt: new Date() // Force update timestamp for LIFO sorting
+        };
+
+        // Time Tracking Logic
+        if (status === 'IN_PROGRESS') {
+            updateData.startedAt = new Date();
+        } else if (status === 'COMPLETED' || status === 'BILLED') {
+            // Fetch current to get startedAt
+            const currentApp = await prisma.appointment.findUnique({ where: { id } });
+
+            // Set completion time
+            const now = new Date();
+            updateData.completedAt = now;
+
+            // Calculate duration if startedAt exists
+            if (currentApp?.startedAt) {
+                const diffMs = now.getTime() - new Date(currentApp.startedAt).getTime();
+                const durationMin = Math.ceil(diffMs / 60000);
+                updateData.duration = durationMin > 0 ? durationMin : 1; // Minimum 1 minute
+            }
+        }
+
         const appointment = await prisma.appointment.update({
             where: { id },
-            data: {
-                status,
-                secretaryNote: secretaryNote ?? undefined,
-                updatedAt: new Date() // Force update timestamp for LIFO sorting
-            }
+            data: updateData
         });
 
         // Trigger Notification Logic here (Placeholder)
