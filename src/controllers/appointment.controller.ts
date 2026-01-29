@@ -75,8 +75,14 @@ export const getAppointments = async (req: Request, res: Response) => {
             }
         });
 
+        const shiftedAppointments = appointments.map(appt => ({
+            ...appt,
+            date: new Date(appt.date.getTime() + 3 * 3600000),
+            endDate: appt.endDate ? new Date(appt.endDate.getTime() + 3 * 3600000) : null
+        }));
+
         console.log(`Backend: Found ${appointments.length} appointments`);
-        res.json(appointments);
+        res.json(shiftedAppointments);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error al obtener citas' });
