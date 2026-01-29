@@ -178,3 +178,98 @@ export const updateStatus = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Failed to update status' });
     }
 };
+
+/**
+ * Create or Get existing conversation for a patient
+ */
+export const createConversation = async (req: Request, res: Response) => {
+    try {
+        const { patientId } = req.body;
+
+        if (!patientId) {
+            return res.status(400).json({ error: 'Patient ID required' });
+        }
+
+        const patient = await prisma.patient.findUnique({
+            where: { id: patientId },
+            include: {
+                insurance: true,
+                appointments: {
+                    where: {
+                        date: { gte: new Date() },
+                        status: { notIn: ['CANCELLED', 'NO_SHOW'] }
+                    },
+                    orderBy: { date: 'asc' },
+                    take: 1
+                }
+            }
+        });
+
+        if (!patient) {
+            return res.status(404).json({ error: 'Patient not found' });
+        }
+
+        if (!patient.phone) {
+            return res.status(400).json({ error: 'Patient has no phone number' });
+        }
+
+        let conversation = await prisma.conversation.findFirst({
+            where: {
+                patientId,
+                channel: 'whatsapp'
+            },
+            include: {
+                messages: {
+                    orderBy: { sentAt: 'desc' },
+                    take: 1
+                },
+                tags: true
+            }
+        });
+
+        if (!conversation) {
+            conversation = await prisma.conversation.create({
+                data: {
+                    patientId,
+                    channel: 'whatsapp',
+                    status: 'open',
+                    unreadCount: 0
+                },
+                include: {
+                    messages: {
+                        orderBy: { sentAt: 'desc' },
+                        take: 1
+                    },
+                    tags: true
+                }
+            });
+        }
+
+        // Format response
+        const formatted = {
+            id: conversation.id,
+            patientId: patient.id,
+            patientName: `${patient.firstName} ${patient.lastName}`,
+            patientPhone: patient.phone,
+            channel: conversation.channel,
+            status: conversation.status,
+            unreadCount: conversation.unreadCount,
+            lastMessage: conversation.messages[0] ? {
+                ...conversation.messages[0],
+                timestamp: conversation.messages[0].sentAt.toISOString(),
+                sender: conversation.messages[0].sender === 'clinic' ? 'me' : 'patient'
+            } : null,
+            tags: conversation.tags.map(t => t.tag),
+            nextAppointment: patient.appointments[0]?.date.toISOString() || null,
+            insurance: patient.insurance?.name || 'Particular',
+            lastVisit: null,
+            outstandingBalance: null
+        };
+
+        res.json(formatted);
+
+    } catch (error) {
+        console.error('Error creating conversation:', error);
+        res.status(500).json({ error: 'Failed to create conversation' });
+    }
+};

@@ -4,7 +4,8 @@ import {
     getConversationMessages,
     sendMessage,
     markAsRead,
-    updateStatus
+    updateStatus,
+    createConversation
 } from '../controllers/conversation.controller';
 
 import { authenticateToken } from '../middleware/auth.middleware';
@@ -16,6 +17,9 @@ router.use(authenticateToken);
 
 // GET /api/conversations - List all conversations
 router.get('/', getConversations);
+
+// POST /api/conversations - Create or get conversation for a patient
+router.post('/', createConversation);
 
 // GET /api/conversations/:id/messages - Get messages for a conversation
 router.get('/:id/messages', getConversationMessages);
