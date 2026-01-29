@@ -251,11 +251,22 @@ export class NotificationService {
                 }
 
                 console.log(`📝 [MSG] ID: ${msg.key.id.slice(-6)} | FromMe: ${fromMe} | JID: ${remoteJid}`);
+                // Helper log to see structure of failing messages
+                if (!extractContent(msg.message) && !this.getBaileysMessageType(msg.message)) {
+                    console.log('⚠️ [EMPTY-CONTENT] Raw Message Structure:', JSON.stringify(msg.message, null, 2));
+                }
 
                 // Deep extract content
                 const extractContent = (m: any): string => {
                     if (!m) return '';
+                    // Unwrap common wrappers
+                    if (m.ephemeralMessage) return extractContent(m.ephemeralMessage.message);
+                    if (m.viewOnceMessage) return extractContent(m.viewOnceMessage.message);
+                    if (m.viewOnceMessageV2) return extractContent(m.viewOnceMessageV2.message);
+                    if (m.documentWithCaptionMessage) return extractContent(m.documentWithCaptionMessage.message);
+
                     const actualMsg = m.message || m;
+
                     const body = actualMsg.conversation ||
                         actualMsg.extendedTextMessage?.text ||
                         actualMsg.imageMessage?.caption ||
@@ -272,7 +283,10 @@ export class NotificationService {
                         '';
 
                     if (body) return body;
+
+                    // Fallback recursion if 'message' property exists (unlikely in standardized Baileys but possible)
                     if (actualMsg.message) return extractContent(actualMsg.message);
+
                     return '';
                 };
 
