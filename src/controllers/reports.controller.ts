@@ -54,11 +54,13 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
                 id: true,
                 status: true,
                 patientId: true,
-                branchId: true
+                branchId: true,
+                date: true,
+                duration: true
             }
         });
 
-        // Calculate Status KPIs
+        // Calculate Status KPIs & Operational Metircs
         const statusDist = {
             completed: 0,
             cancelled: 0,
@@ -69,8 +71,16 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
             inprogress: 0
         };
 
+        const opsStats = {
+            totalAttended: 0,
+            totalDuration: 0,
+            daily: {} as Record<string, { count: number; duration: number }>
+        };
+
         appointments.forEach(app => {
             const s = app.status;
+
+            // Status counts
             if (s === 'COMPLETED') statusDist.completed++;
             else if (s === 'BILLED') statusDist.billed++;
             else if (s === 'CANCELLED') statusDist.cancelled++;
@@ -78,7 +88,34 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
             else if (s === 'SCHEDULED') statusDist.scheduled++;
             else if (s === 'CONFIRMED') statusDist.confirmed++;
             else if (s === 'IN_PROGRESS') statusDist.inprogress++;
+
+            // Operational Metrics (Attended = COMPLETED or BILLED)
+            if (s === 'COMPLETED' || s === 'BILLED') {
+                opsStats.totalAttended++;
+                opsStats.totalDuration += (app.duration || 0);
+
+                // Daily breakdown for charts
+                // Use simplified date string YYYY-MM-DD
+                const dayKey = app.date.toISOString().split('T')[0];
+                if (!opsStats.daily[dayKey]) {
+                    opsStats.daily[dayKey] = { count: 0, duration: 0 };
+                }
+                opsStats.daily[dayKey].count++;
+                opsStats.daily[dayKey].duration += (app.duration || 0);
+            }
         });
+
+        // Review global average
+        const avgDuration = opsStats.totalAttended > 0
+            ? Math.round(opsStats.totalDuration / opsStats.totalAttended)
+            : 0;
+
+        // Format Daily History
+        const operationsHistory = Object.entries(opsStats.daily).map(([date, data]) => ({
+            date,
+            count: data.count,
+            avgDuration: data.count > 0 ? Math.round(data.duration / data.count) : 0
+        })).sort((a, b) => a.date.localeCompare(b.date));
 
         // Aggregate for Dashboard (match frontend expectations)
         // Frontend uses: completed (COMPLETED+BILLED), cancelled (CANCELLED+NO_SHOW)
@@ -161,6 +198,11 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
                 completed: effectiveCompleted,
                 cancelled: effectiveCancelled,
                 breakdown: statusDist
+            },
+            operations: {
+                totalAttended: opsStats.totalAttended,
+                avgDuration,
+                history: operationsHistory
             }
         });
 
