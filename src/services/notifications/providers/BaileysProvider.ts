@@ -172,6 +172,29 @@ export class BaileysProvider implements IWhatsAppProvider {
                 console.warn('⚠️ BaileysProvider: No message handler registered!');
             }
         });
+
+        // Listen for message status updates (e.g. READ receipts from phone)
+        this.sock.ev.on('messages.update', async (updates) => {
+            console.log('📬 BaileysProvider: messages.update', updates.length);
+            if (this.messageUpdateHandler) {
+                await this.messageUpdateHandler(updates);
+            }
+        });
+    }
+
+    private messageUpdateHandler: ((updates: any[]) => void) | null = null;
+    setMessageUpdateHandler(handler: (updates: any[]) => void) {
+        this.messageUpdateHandler = handler;
+    }
+
+    async markAsRead(key: any, fromMe: boolean): Promise<void> {
+        if (!this.sock) return;
+        try {
+            await this.sock.readMessages([key]);
+            console.log(`✅ Marked message ${key.id} as read on WhatsApp`);
+        } catch (error) {
+            console.error('Failed to mark message as read:', error);
+        }
     }
 
     async sendMessage(params: {

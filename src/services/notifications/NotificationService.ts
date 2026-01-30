@@ -15,6 +15,29 @@ export class NotificationService {
 
         // Register incoming message handler
         this.baileysProvider.setMessageHandler(this.onBaileysMessage.bind(this));
+
+        // Register update handler (Read receipts)
+        this.baileysProvider.setMessageUpdateHandler(this.onBaileysMessageUpdate.bind(this));
+    }
+
+    private async onBaileysMessageUpdate(updates: any[]) {
+        for (const update of updates) {
+            // update.update.status === 3 (READ) or 4 (PLAYED)
+            // update.key
+            if (update.update?.status >= 3) {
+                const id = update.key.id;
+                console.log(`👁️ [READ-RECEIPT] Message ${id?.slice(-5)} was read/played`);
+
+                try {
+                    await prisma.conversationMessage.updateMany({
+                        where: { externalId: id },
+                        data: { status: 'read' }
+                    });
+                } catch (e) {
+                    // ignore if not found
+                }
+            }
+        }
     }
 
     async initialize() {
