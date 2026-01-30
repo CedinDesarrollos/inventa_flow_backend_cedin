@@ -307,9 +307,10 @@ export class NotificationService {
                     const now = new Date();
                     const diffHours = (now.getTime() - msgTime.getTime()) / (1000 * 60 * 60);
 
-                    if (diffHours > 24) {
-                        console.log(`🕰️ [STALE] Skipping old message from ${msgTime.toISOString()} (${diffHours.toFixed(1)}h old)`);
-                        continue;
+                    // REMOVED 24h skip to allow History Sync ("append" type) and full restoration
+                    if (diffHours > 24 && type === 'notify') {
+                        // Optional: we can still log it as Old but we SHOULD save it if we want persistent history
+                        console.log(`🕰️ [OLD-MSG] Processing old message from ${msgTime.toISOString()} (${diffHours.toFixed(1)}h old)`);
                     }
                 }
 
@@ -576,7 +577,8 @@ export class NotificationService {
                     where: { id: conversation.id },
                     data: {
                         lastMessageAt: new Date(),
-                        unreadCount: fromMe ? undefined : { increment: 1 }
+                        // Only increment unread if it's NOT from me AND NOT history sync (append)
+                        unreadCount: (fromMe || type === 'append') ? undefined : { increment: 1 }
                     }
                 });
 
