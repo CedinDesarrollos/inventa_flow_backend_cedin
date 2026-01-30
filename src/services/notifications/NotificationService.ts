@@ -225,6 +225,57 @@ export class NotificationService {
     }
 
     /**
+     * Mark remote messages as read on the Provider (WhatsApp/Twilio)
+     */
+    async markMessagesAsRead(conversationId: string) {
+        // 1. Get unread messages for this conversation
+        // We only care about messages FROM patient (sender != clinic) that are not 'read'
+        const unreadMessages = await prisma.conversationMessage.findMany({
+            where: {
+                conversationId: conversationId,
+                sender: 'patient',
+                status: { not: 'read' },
+                externalId: { not: null }
+            },
+            take: 20 // Batch limit to avoid rate limits
+        });
+
+        console.log(`👁️ [READ-SYNC] Found ${unreadMessages.length} unread messages to sync with provider`);
+
+        for (const msg of unreadMessages) {
+            if (msg.provider === 'baileys' && msg.externalId) {
+                // Determine remoteJid from conversation
+                // (We need the patient's phone/lid, simpler to just query conversation->patient)
+                const conversation = await prisma.conversation.findUnique({
+                    where: { id: conversationId },
+                    include: { patient: true }
+                });
+
+                if (conversation?.patient?.phone) {
+                    // We need to construct a minimal key for Baileys
+                    // The key format depends on if it's a group or individual. Assuming individual for now.
+                    // remoteJid is the patient's JID.
+
+                    let remoteJid = conversation.patient.lid || `${conversation.patient.phone}@s.whatsapp.net`;
+                    // Clean phone if not LID
+                    if (!conversation.patient.lid) {
+                        const clean = conversation.patient.phone.replace(/\D/g, '');
+                        remoteJid = `${clean}@s.whatsapp.net`;
+                    }
+
+                    const key = {
+                        remoteJid: remoteJid,
+                        id: msg.externalId,
+                        fromMe: false // Incoming message
+                    };
+
+                    await this.baileysProvider.markAsRead(key, false);
+                }
+            }
+        }
+    }
+
+    /**
      * Handle incoming messages from Baileys (Official WhatsApp)
      */
     private async onBaileysMessage(m: any) {
