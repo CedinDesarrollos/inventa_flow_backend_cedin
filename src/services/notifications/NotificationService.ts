@@ -546,9 +546,14 @@ export class NotificationService {
                             }
                         } else {
                             console.warn('⚠️ [MEDIA] Failed to download buffer');
+                            // Update content to reflect failure if it was just a placeholder
+                            if (!downloadedContent || downloadedContent === `(Archivo Adjunto: ${msgType})` || downloadedContent === `(${msgType})`) {
+                                downloadedContent = `⚠️ Error: No se pudo descargar ${msgType}`;
+                            }
                         }
                     } catch (e) {
                         console.error('❌ [MEDIA] Error processing media:', e);
+                        downloadedContent = `⚠️ Error procesando ${msgType}`;
                     }
                 }
 
