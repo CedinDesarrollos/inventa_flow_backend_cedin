@@ -15,14 +15,15 @@ export interface IWhatsAppProvider {
         error?: string;
     }>;
 
-    markAsRead?(key: any, fromMe: boolean): Promise<void>;
-}
-connected: boolean;
-status: string;
-qrCode ?: string;
-number ?: string;
-error ?: string;
+    getStatus(): Promise<{
+        connected: boolean;
+        status: string;
+        qrCode?: string;
+        number?: string;
+        error?: string;
     }>;
 
-disconnect(): Promise<void>;
+    disconnect(): Promise<void>;
+
+    markAsRead?(key: any, fromMe: boolean): Promise<void>;
 }
