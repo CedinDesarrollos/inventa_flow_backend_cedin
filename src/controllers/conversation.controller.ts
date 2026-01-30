@@ -149,6 +149,12 @@ export const markAsRead = async (req: Request, res: Response) => {
             data: { unreadCount: 0 }
         });
 
+        // Trigger Read Receipt on WhatsApp
+        // We do this asynchronously to not block the UI response
+        notificationService.markMessagesAsRead(id).catch(err =>
+            console.error('Failed to sync read status to WhatsApp:', err)
+        );
+
         res.json({ success: true });
     } catch (error) {
         console.error('Error marking as read:', error);
