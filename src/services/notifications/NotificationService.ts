@@ -303,6 +303,21 @@ export class NotificationService {
                 let content = extractContent(msg.message);
                 const msgType = this.getBaileysMessageType(msg.message);
 
+                // --- VALIDATION BEFORE CREATION ---
+                // Determine if we should process this message at all
+                let mediaUrl = undefined;
+                let downloadedContent = content;
+
+                // Pre-check for media types to see if we can download them later (we don't download yet to save time if we skip)
+                const isMedia = ['image', 'video', 'audio', 'document', 'sticker'].includes(msgType);
+
+                // If it's not media and has no text content, it's likely junk/protocol
+                if (!content && !isMedia) {
+                    console.log('⚠️ [SKIP-EMPTY] Message has no content and no media. Skipping creation.');
+                    continue;
+                }
+                // ----------------------------------
+
                 // Phone number digits
                 let phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
 
@@ -420,8 +435,7 @@ export class NotificationService {
                 }
 
                 // Media Handling
-                let mediaUrl = undefined;
-                let downloadedContent = content; // Default to text content
+                // (mediaUrl and downloadedContent are already declared above)
 
                 if (['image', 'video', 'audio', 'document', 'sticker'].includes(msgType)) {
                     console.log(`📥 [MEDIA] Downloading ${msgType}...`);
@@ -466,11 +480,7 @@ export class NotificationService {
                 // Final Content Logic
                 const finalContent = downloadedContent || (msgType === 'text' ? '' : `(Archivo: ${msgType})`);
 
-                // CRITICAL: prevents saving empty messages (e.g. protocol messages or unparsed types)
-                if (!finalContent && !mediaUrl) {
-                    console.log('⚠️ [SKIP-EMPTY] Message has no content and no media. Skipping save.');
-                    continue;
-                }
+                // (Validation already done at start)
 
                 // Save message
                 await prisma.conversationMessage.create({
