@@ -194,11 +194,24 @@ export class BaileysProvider implements IWhatsAppProvider {
                 await this.messageUpdateHandler(updates);
             }
         });
+
+        // Listen for chat updates (e.g. Unread count cleared on phone)
+        this.sock.ev.on('chats.update', async (updates) => {
+            console.log('📬 BaileysProvider: chats.update', updates.length);
+            if (this.chatUpdateHandler) {
+                await this.chatUpdateHandler(updates);
+            }
+        });
     }
 
     private messageUpdateHandler: ((updates: any[]) => void) | null = null;
     setMessageUpdateHandler(handler: (updates: any[]) => void) {
         this.messageUpdateHandler = handler;
+    }
+
+    private chatUpdateHandler: ((updates: any[]) => void) | null = null;
+    setChatUpdateHandler(handler: (updates: any[]) => void) {
+        this.chatUpdateHandler = handler;
     }
 
     async markAsRead(key: any, fromMe: boolean): Promise<void> {

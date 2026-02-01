@@ -18,6 +18,66 @@ export class NotificationService {
 
         // Register update handler (Read receipts)
         this.baileysProvider.setMessageUpdateHandler(this.onBaileysMessageUpdate.bind(this));
+
+        // Register chat update handler (Sync read status from phone)
+        this.baileysProvider.setChatUpdateHandler(this.onBaileysChatUpdate.bind(this));
+    }
+
+    private async onBaileysChatUpdate(updates: any[]) {
+        for (const update of updates) {
+            // If unreadCount becomes 0, it means it was read on the phone
+            if (update.unreadCount === 0 || update.unreadCount === null) {
+                const jid = update.id;
+                console.log(`👁️ [SYNC-READ] Chat ${jid} marked as read on Phone`);
+
+                if (!jid) continue;
+
+                try {
+                    // Find conversation by JID (either LID or Phone)
+                    // Note: This requires reverse lookup or searching by patient phone
+                    let phone = jid.split('@')[0];
+                    // Clean phone
+                    phone = phone.replace(/\D/g, '');
+
+                    // Find patient
+                    const patient = await prisma.patient.findFirst({
+                        where: {
+                            OR: [
+                                { lid: jid },
+                                { phone: { contains: phone.slice(-8) } } // Loose match
+                            ]
+                        }
+                    });
+
+                    if (patient) {
+                        const conversation = await prisma.conversation.findFirst({
+                            where: { patientId: patient.id, channel: 'whatsapp' }
+                        });
+
+                        if (conversation) {
+                            // Mark all messages as read
+                            await prisma.conversationMessage.updateMany({
+                                where: {
+                                    conversationId: conversation.id,
+                                    status: { not: 'read' },
+                                    sender: 'patient' // Only incoming messages need to be marked read
+                                },
+                                data: { status: 'read' }
+                            });
+
+                            // Reset conversation unread count
+                            await prisma.conversation.update({
+                                where: { id: conversation.id },
+                                data: { unreadCount: 0 }
+                            });
+                            console.log(`✅ [SYNC-READ] Local conversation ${conversation.id} marked as read`);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error syncing read status:', e);
+                }
+            }
+        }
     }
 
     private async onBaileysMessageUpdate(updates: any[]) {
