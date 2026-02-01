@@ -103,6 +103,7 @@ export class BaileysProvider implements IWhatsAppProvider {
             markOnlineOnConnect: true, // Ensure we appear online
             msgRetryCounterCache: this.msgRetryCounterCache, // Essential for handling decryption errors/retries
             emitOwnEvents: true, // Explicitly enable processing of own messages (Mirroring)
+            shouldIgnoreJid: (jid) => jid === 'status@broadcast' || jid.includes('status@broadcast'), // Ignore Status Updates to prevent backlog/decrypt errors
         });
 
         // Listen for credentials update
