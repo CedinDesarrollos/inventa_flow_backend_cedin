@@ -443,6 +443,9 @@ export class NotificationService {
             for (const msg of messages) {
                 const remoteJid = msg.key.remoteJid;
                 const fromMe = msg.key.fromMe;
+                const msgId = msg.key.id;
+
+                console.log(`🔎 [RAW-MSG] Processing ID: ${msgId} | JID: ${remoteJid} | FromMe: ${fromMe} | Type: ${type}`);
 
                 // Check Timestamp for stale messages (Safety net for 'notify' type that is actually old)
                 let msgTs = 0;

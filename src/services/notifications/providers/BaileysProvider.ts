@@ -102,6 +102,7 @@ export class BaileysProvider implements IWhatsAppProvider {
             syncFullHistory: false, // DISABLED to prevent massive lag on reconnects
             markOnlineOnConnect: true, // Ensure we appear online
             msgRetryCounterCache: this.msgRetryCounterCache, // Essential for handling decryption errors/retries
+            emitOwnEvents: true, // Explicitly enable processing of own messages (Mirroring)
         });
 
         // Listen for credentials update
