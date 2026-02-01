@@ -9,7 +9,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import NodeCache from 'node-cache';
-import { usePrismaAuthState } from '../../../config/baileys-auth';
+import { usePrismaAuthState } from './usePrismaAuthState';
 import * as qrcode from 'qrcode';
 import * as fs from 'fs';
 import * as path from 'path';
