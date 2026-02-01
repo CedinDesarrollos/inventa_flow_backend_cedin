@@ -550,23 +550,19 @@ export class NotificationService {
                 // Phone number digits
                 let phoneDigits = remoteJid.split('@')[0].replace(/\D/g, '');
 
-                // ... (existing Ignore Self logic) ...
-                const myConnectedPhone = this.baileysProvider.getCurrentPhone();
-                if (myConnectedPhone && (phoneDigits === myConnectedPhone || phoneDigits.endsWith(myConnectedPhone))) {
-                    console.log(`🛑 [IGNORE-SELF] Skipping message from connected number: ${phoneDigits}`);
-                    continue;
+                // --- MIRRORING LOGIC ---
+                // We DO want to process messages sent from the phone (fromMe === true)
+                // The previous logic skipped them, preventing the App from seeing replies made on mobile.
+                let senderType: 'patient' | 'clinic' = 'patient';
+
+                if (fromMe) {
+                    console.log(`🪞 [MIRROR] Detected message sent from THIS device/account. Syncing...`);
+                    senderType = 'clinic';
+                } else {
+                    // Only skip if it's strictly "From Me" but falsely flagged (rare)
+                    // Or if we need to prevent loops (but we want sync)
+                    // The "Ignore Self" block was preventing mirroring. Removed.
                 }
-
-                // ... (LID and Patient Logic remains the same) ...
-                // [Insert the existing Patient Lookup Logic here? No, tool replaces blocks. I must respect the flow.]
-                // The tool replaces a chunk. I need to be careful to match context.
-                // I will target the existing extraction block and extend it.
-
-                // ... (Skip to extraction usage) ...
-
-
-                // IGNORE SELF (DYNAMICALLY)
-                // (Already handled above) removed duplicate logic
 
 
                 // LID Resolution
@@ -715,18 +711,18 @@ export class NotificationService {
 
                 // (Validation already done at start)
 
-                // Save message
+                // Create Message
                 await prisma.conversationMessage.create({
                     data: {
                         conversationId: conversation.id,
-                        content: finalContent,
-                        type: msgType,
-                        sender: fromMe ? 'clinic' : 'patient',
-                        status: 'delivered',
-                        externalId: msg.key.id,
+                        content: downloadedContent || '', // Use downloaded if available (impl later) or raw
+                        type: msgType as any,
+                        sender: senderType, // 'patient' or 'clinic' (mirrored)
+                        status: senderType === 'clinic' ? 'sent' : 'received', // Auto-mark mirrored as sent
+                        mediaUrl: mediaUrl,
+                        externalId: msg.key.id, // Important for Read Receipts
                         provider: 'baileys',
-                        sentAt: msgDate,
-                        mediaUrl: mediaUrl // Save the URL
+                        sentAt: msgDate // Respect original timestamp
                     }
                 });
 
