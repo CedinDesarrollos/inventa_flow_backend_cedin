@@ -561,11 +561,10 @@ export class NotificationService {
                 }
 
                 if (!patient) {
-                    if (fromMe) {
-                        console.log(`⏭️ [MIRROR-SKIP] Outgoing for unknown number: ${phoneDigits}`);
-                        continue;
-                    }
-                    console.log(`🆕 [LEAD] Creating for ${phoneDigits}`);
+                    // REMOVED: if (fromMe) continue;
+                    // We WANT to capture outgoing messages to new numbers (Leads initiated from Phone)
+
+                    console.log(`🆕 [LEAD] Creating for ${phoneDigits} (Source: ${fromMe ? 'Phone-Outgoing' : 'Incoming'})`);
                     patient = await prisma.patient.create({
                         data: {
                             firstName: "WhatsApp User",
