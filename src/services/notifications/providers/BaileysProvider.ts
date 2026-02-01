@@ -179,7 +179,7 @@ export class BaileysProvider implements IWhatsAppProvider {
 
         // Listen for incoming messages
         this.sock.ev.on('messages.upsert', async (m) => {
-            console.log('📬 BaileysProvider: Raw messages.upsert received', { type: m.type, count: m.messages?.length });
+            console.log('📬 BaileysProvider: Raw messages.upsert received', JSON.stringify({ type: m.type, count: m.messages?.length, firstMsgKey: m.messages?.[0]?.key }));
             if (this.messageHandler) {
                 try {
                     await this.messageHandler(m);
