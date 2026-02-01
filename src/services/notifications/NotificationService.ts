@@ -374,7 +374,17 @@ export class NotificationService {
 
                 // Debug log
                 console.log(`👁️ [READ-CMD] Marking ${msg.externalId} as read. JID: ${remoteJid}`);
-                await this.baileysProvider.markAsRead(key, false);
+                try {
+                    await this.baileysProvider.markAsRead(key, false);
+
+                    // Update local DB status to 'read' to prevent re-sending
+                    await prisma.conversationMessage.update({
+                        where: { id: msg.id },
+                        data: { status: 'read' }
+                    });
+                } catch (e) {
+                    console.error(`❌ [READ-FAIL] Failed to mark ${msg.externalId} as read:`, e);
+                }
             }
         }
     }
