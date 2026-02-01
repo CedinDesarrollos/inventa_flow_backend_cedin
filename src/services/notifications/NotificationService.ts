@@ -357,10 +357,13 @@ export class NotificationService {
         }
 
         // 3. Determine JID
-        let remoteJid = conversation.patient.lid || `${conversation.patient.phone}@s.whatsapp.net`;
-        if (!conversation.patient.lid) {
-            const clean = conversation.patient.phone.replace(/\D/g, '');
-            remoteJid = `${clean}@s.whatsapp.net`;
+        // FORCE using Phone JID (@s.whatsapp.net) for Read Receipts to ensure they reflect on the physical device.
+        let phone = conversation.patient.phone.replace(/\D/g, '');
+        let remoteJid = `${phone}@s.whatsapp.net`;
+
+        // Fallback: If we absolutely don't have a phone (unlikely given checks), use LID as last resort
+        if (!phone && conversation.patient.lid) {
+            remoteJid = conversation.patient.lid;
         }
 
         // 4. Mark each as read
