@@ -27,30 +27,27 @@ export class NotificationService {
         for (const update of updates) {
             console.log(`📡 [CHATS-UPDATE] Payload:`, JSON.stringify(update));
 
-            // If unreadCount becomes 0, it means it was read on the phone
-            // Some updates might use 'unreadCount: null' to signify cleared, or '0'
-            if (update.unreadCount === 0 || update.unreadCount === null) {
+            // Logic: If unreadCount is set to 0, or is null (which some versions send for 'cleared')
+            // key 'unreadCount' existence check is crucial
+            const isReadClear = update.unreadCount === 0 || update.unreadCount === null;
+
+            if (isReadClear && update.id) {
                 const jid = update.id;
                 console.log(`👁️ [SYNC-READ] Chat ${jid} marked as read on Phone`);
 
-                if (!jid) continue;
-
                 try {
-                    // Find conversation by JID (either LID or Phone)
-                    // Note: This requires reverse lookup or searching by patient phone
-                    let phone = jid.split('@')[0];
-                    // Clean phone
-                    phone = phone.replace(/\D/g, '');
-
-                    // Find patient
-                    const patient = await prisma.patient.findFirst({
-                        where: {
-                            OR: [
-                                { lid: jid },
-                                { phone: { contains: phone.slice(-8) } } // Loose match
-                            ]
-                        }
+                    // Try to resolve exact patient first
+                    let patient = await prisma.patient.findFirst({
+                        where: { OR: [{ lid: jid }, { phone: jid.split('@')[0] }] }
                     });
+
+                    // Fallback to searching by suffix if strict match fails (common with country codes)
+                    if (!patient) {
+                        const cleanPhone = jid.split('@')[0].replace(/\D/g, '').slice(-8);
+                        patient = await prisma.patient.findFirst({
+                            where: { phone: { contains: cleanPhone } }
+                        });
+                    }
 
                     if (patient) {
                         const conversation = await prisma.conversation.findFirst({
@@ -59,7 +56,7 @@ export class NotificationService {
 
                         if (conversation) {
                             // Mark all messages as read
-                            await prisma.conversationMessage.updateMany({
+                            const result = await prisma.conversationMessage.updateMany({
                                 where: {
                                     conversationId: conversation.id,
                                     status: { not: 'read' },
@@ -73,8 +70,10 @@ export class NotificationService {
                                 where: { id: conversation.id },
                                 data: { unreadCount: 0 }
                             });
-                            console.log(`✅ [SYNC-READ] Local conversation ${conversation.id} marked as read`);
+                            console.log(`✅ [SYNC-READ] Local conversation ${conversation.id} synced. Marked ${result.count} msgs as read.`);
                         }
+                    } else {
+                        console.warn(`⚠️ [SYNC-READ] Could not find patient for JID ${jid}`);
                     }
                 } catch (e) {
                     console.error('Error syncing read status:', e);
