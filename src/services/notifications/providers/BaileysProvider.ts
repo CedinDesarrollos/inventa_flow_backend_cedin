@@ -7,8 +7,9 @@ import makeWASocket, {
     Contact,
     downloadMediaMessage
 } from '@whiskeysockets/baileys';
-import { usePrismaAuthState } from './usePrismaAuthState';
 import { Boom } from '@hapi/boom';
+import NodeCache from 'node-cache';
+import { usePrismaAuthState } from '../../../config/baileys-auth';
 import * as qrcode from 'qrcode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,7 +20,9 @@ export class BaileysProvider implements IWhatsAppProvider {
     private lidToPhone: Map<string, string> = new Map();
     private lidMapPath = path.join(process.env.UPLOAD_DIR || path.resolve('public/uploads'), 'baileys_lid_map.json');
     private qrCode: string | null = null;
+    private qrCode: string | null = null;
     private status: 'connected' | 'connecting' | 'disconnected' | 'waiting_qr' = 'disconnected';
+    private msgRetryCounterCache = new NodeCache();
 
     /**
      * Resolve LID to Phone Number using the internal Map
@@ -99,6 +102,7 @@ export class BaileysProvider implements IWhatsAppProvider {
             retryRequestDelayMs: 2000, // Retry failed requests sooner
             syncFullHistory: false, // DISABLED to prevent massive lag on reconnects
             markOnlineOnConnect: true, // Ensure we appear online
+            msgRetryCounterCache: this.msgRetryCounterCache, // Essential for handling decryption errors/retries
         });
 
         // Listen for credentials update
