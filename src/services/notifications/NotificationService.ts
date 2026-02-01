@@ -407,7 +407,11 @@ export class NotificationService {
                 if (msgTs > 0) {
                     const msgTime = new Date(msgTs * 1000);
                     const now = new Date();
-                    const diffHours = (now.getTime() - msgTime.getTime()) / (1000 * 60 * 60);
+                    const diffMs = now.getTime() - msgTime.getTime();
+                    const diffSeconds = (diffMs / 1000).toFixed(1);
+                    console.log(`⏱️ [LATENCY] Msg Time: ${msgTime.toLocaleTimeString()} | Now: ${now.toLocaleTimeString()} | Lag: ${diffSeconds}s`);
+
+                    const diffHours = (diffMs) / (1000 * 60 * 60);
 
                     // REMOVED 24h skip to allow History Sync ("append" type) and full restoration
                     if (diffHours > 24 && type === 'notify') {

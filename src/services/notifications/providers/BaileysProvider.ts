@@ -97,7 +97,8 @@ export class BaileysProvider implements IWhatsAppProvider {
             defaultQueryTimeoutMs: 60000,
             keepAliveIntervalMs: 15000, // Ping more often (15s)
             retryRequestDelayMs: 2000, // Retry failed requests sooner
-            syncFullHistory: true, // Re-enable history to ensure contacts and messages load
+            syncFullHistory: false, // DISABLED to prevent massive lag on reconnects
+            markOnlineOnConnect: true, // Ensure we appear online
         });
 
         // Listen for credentials update
