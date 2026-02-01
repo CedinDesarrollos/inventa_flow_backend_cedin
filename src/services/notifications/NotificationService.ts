@@ -331,7 +331,6 @@ export class NotificationService {
      */
     async markMessagesAsRead(conversationId: string) {
         // 1. Get unread messages for this conversation
-        // We only care about messages FROM patient (sender != clinic) that are not 'read'
         const unreadMessages = await prisma.conversationMessage.findMany({
             where: {
                 conversationId: conversationId,
@@ -342,37 +341,40 @@ export class NotificationService {
             take: 20 // Batch limit to avoid rate limits
         });
 
+        if (unreadMessages.length === 0) return;
+
         console.log(`👁️ [READ-SYNC] Found ${unreadMessages.length} unread messages to sync with provider`);
 
+        // 2. Fetch context once
+        const conversation = await prisma.conversation.findUnique({
+            where: { id: conversationId },
+            include: { patient: true }
+        });
+
+        if (!conversation?.patient?.phone) {
+            console.warn('Cannot sync read status: Patient has no phone/context');
+            return;
+        }
+
+        // 3. Determine JID
+        let remoteJid = conversation.patient.lid || `${conversation.patient.phone}@s.whatsapp.net`;
+        if (!conversation.patient.lid) {
+            const clean = conversation.patient.phone.replace(/\D/g, '');
+            remoteJid = `${clean}@s.whatsapp.net`;
+        }
+
+        // 4. Mark each as read
         for (const msg of unreadMessages) {
             if (msg.provider === 'baileys' && msg.externalId) {
-                // Determine remoteJid from conversation
-                // (We need the patient's phone/lid, simpler to just query conversation->patient)
-                const conversation = await prisma.conversation.findUnique({
-                    where: { id: conversationId },
-                    include: { patient: true }
-                });
+                const key = {
+                    remoteJid: remoteJid,
+                    id: msg.externalId,
+                    fromMe: false // Incoming message
+                };
 
-                if (conversation?.patient?.phone) {
-                    // We need to construct a minimal key for Baileys
-                    // The key format depends on if it's a group or individual. Assuming individual for now.
-                    // remoteJid is the patient's JID.
-
-                    let remoteJid = conversation.patient.lid || `${conversation.patient.phone}@s.whatsapp.net`;
-                    // Clean phone if not LID
-                    if (!conversation.patient.lid) {
-                        const clean = conversation.patient.phone.replace(/\D/g, '');
-                        remoteJid = `${clean}@s.whatsapp.net`;
-                    }
-
-                    const key = {
-                        remoteJid: remoteJid,
-                        id: msg.externalId,
-                        fromMe: false // Incoming message
-                    };
-
-                    await this.baileysProvider.markAsRead(key, false);
-                }
+                // Debug log
+                console.log(`👁️ [READ-CMD] Marking ${msg.externalId} as read. JID: ${remoteJid}`);
+                await this.baileysProvider.markAsRead(key, false);
             }
         }
     }
