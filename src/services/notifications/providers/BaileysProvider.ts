@@ -93,10 +93,10 @@ export class BaileysProvider implements IWhatsAppProvider {
             printQRInTerminal: true,
             browser: ['InventaFlow', 'Chrome', '1.0.0'],
             // Improve timeouts and stability
-            connectTimeoutMs: 60000,
+            connectTimeoutMs: 20000, // Fail fast to let logic retry
             defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 30000, // Keep connection alive
-            retryRequestDelayMs: 5000,
+            keepAliveIntervalMs: 15000, // Ping more often (15s)
+            retryRequestDelayMs: 2000, // Retry failed requests sooner
             syncFullHistory: true, // Re-enable history to ensure contacts and messages load
         });
 
@@ -114,16 +114,30 @@ export class BaileysProvider implements IWhatsAppProvider {
             }
 
             if (connection === 'close') {
-                const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+                const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
+
+                // Codes that should trigger immediate internal reconnect
+                const shouldReconnect =
+                    reason !== DisconnectReason.loggedOut &&
+                    reason !== 401; // Unauthorized
+
+                console.log(`🔌 Connection closed. Reason: ${reason}. Reconnecting: ${shouldReconnect}`);
 
                 if (shouldReconnect) {
                     this.status = 'disconnected';
                     this.qrCode = null;
-                    console.log('Connection closed due to ', lastDisconnect?.error, ', reconnecting...');
-                    // Add delay before reconnecting to prevent loops
-                    setTimeout(() => this.connectToWhatsApp(), 3000);
+
+                    // Different backoff strategies
+                    // 515 = Restart Required (Common, immediate retry)
+                    // 408 = Timed Out (Common, immediate retry)
+                    const delay = (reason === DisconnectReason.restartRequired || reason === DisconnectReason.timedOut)
+                        ? 0
+                        : 2000; // 2s delay for others
+
+                    console.log(`🔄 Reconnecting in ${delay}ms...`);
+                    setTimeout(() => this.connectToWhatsApp(), delay);
                 } else {
-                    console.log('Connection closed. You are logged out.');
+                    console.log('❌ Connection closed permanently. You are logged out or banned.');
                     this.status = 'disconnected';
                     this.qrCode = null;
                     await this.logout();
