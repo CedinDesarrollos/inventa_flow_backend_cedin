@@ -20,7 +20,6 @@ export class BaileysProvider implements IWhatsAppProvider {
     private lidToPhone: Map<string, string> = new Map();
     private lidMapPath = path.join(process.env.UPLOAD_DIR || path.resolve('public/uploads'), 'baileys_lid_map.json');
     private qrCode: string | null = null;
-    private qrCode: string | null = null;
     private status: 'connected' | 'connecting' | 'disconnected' | 'waiting_qr' = 'disconnected';
     private msgRetryCounterCache = new NodeCache();
 
