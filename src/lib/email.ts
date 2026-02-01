@@ -22,7 +22,7 @@ export const sendWelcomeEmail = async (email: string, name: string, username: st
                 <p>Se ha creado tu cuenta profesional en <strong>InventaFlow</strong>.</p>
                 <p>Aquí tienes tus credenciales de acceso:</p>
                 <ul>
-                    <li><strong>URL:</strong> <a href="http://localhost:5173">InventaFlow Login</a></li>
+                    <li><strong>URL:</strong> <a href="https://admin.cedin.com.py">InventaFlow Login</a></li>
                     <li><strong>Usuario:</strong> ${username}</li>
                     <li><strong>Contraseña Temporal:</strong> ${tempPass}</li>
                 </ul>

@@ -145,7 +145,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
             { expiresIn: '1h' }
         );
 
-        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+        const resetUrl = `${process.env.FRONTEND_URL || 'https://admin.cedin.com.py'}/reset-password?token=${token}`;
 
         // Send email
         await import('../lib/email').then(m => m.sendPasswordResetEmail(user.email, user.fullName, resetUrl));
