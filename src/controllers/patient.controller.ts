@@ -94,6 +94,12 @@ export const getPatientById = async (req: Request, res: Response) => {
                     orderBy: { date: 'desc' },
                     take: 5,
                     include: { doctor: true }
+                },
+                relationshipsAsSubject: {
+                    include: { relative: true }
+                },
+                relationshipsAsRelative: {
+                    include: { patient: true }
                 }
             }
         });
@@ -322,5 +328,45 @@ export const mergePatients = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error merging patients:', error);
         res.status(500).json({ error: 'Error al fusionar pacientes' });
+    }
+};
+
+export const addPatientRelationship = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params as { id: string }; // The "Child" (Subject)
+        const { relativeId, type, receivesNotifications } = req.body;
+
+        if (id === relativeId) {
+            return res.status(400).json({ error: 'No se puede vincular a sí mismo' });
+        }
+
+        const relation = await prisma.patientRelationship.create({
+            data: {
+                patientId: id,
+                relativeId: relativeId,
+                type: type || 'FATHER', // Default
+                receivesNotifications: receivesNotifications ?? true,
+                isPrimary: false
+            },
+            include: { relative: true }
+        });
+
+        res.status(201).json(relation);
+    } catch (error) {
+        console.error('Error adding relationship:', error);
+        res.status(500).json({ error: 'Error al vincular familiar' });
+    }
+};
+
+export const deletePatientRelationship = async (req: Request, res: Response) => {
+    try {
+        const { relationshipId } = req.params as { relationshipId: string };
+        await prisma.patientRelationship.delete({
+            where: { id: relationshipId }
+        });
+        res.status(204).send();
+    } catch (error) {
+        console.error('Error deleting relationship:', error);
+        res.status(500).json({ error: 'Error al eliminar vínculo' });
     }
 };

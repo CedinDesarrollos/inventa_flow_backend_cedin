@@ -113,7 +113,31 @@ model Patient {
   prescriptions   Prescription[]
   transactions    Transaction[]
 
+  // Relationships
+  relationshipsAsSubject  PatientRelationship[] @relation("PatientAsSubject") // I am the child
+  relationshipsAsRelative PatientRelationship[] @relation("PatientAsRelative") // I am the parent
+
   @@map("patients")
+  @@schema("inventa_clinical_app")
+}
+
+model PatientRelationship {
+  id          String   @id @default(uuid())
+  patientId   String   @map("patient_id")      // The child (receives service)
+  relativeId  String   @map("relative_id")     // The parent (responsible)
+  type        String   // "FATHER", "MOTHER", "TUTOR", "SIBLING", "OTHER"
+  isPrimary   Boolean  @default(false) @map("is_primary") 
+  
+  // If true, notifications for patientId will be sent to relativeId
+  receivesNotifications Boolean @default(true) @map("receives_notifications")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  patient     Patient  @relation("PatientAsSubject", fields: [patientId], references: [id])
+  relative    Patient  @relation("PatientAsRelative", fields: [relativeId], references: [id])
+
+  @@unique([patientId, relativeId])
+  @@map("patient_relationships")
   @@schema("inventa_clinical_app")
 }
 

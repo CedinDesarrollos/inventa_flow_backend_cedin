@@ -101,9 +101,30 @@ export class NotificationService {
             console.log(`✅ Created new conversation for patient ${patient.firstName} ${patient.lastName}`);
         }
 
+
+        // --- FAMILY REDIRECTION LOGIC ---
+        // Check if patient has a representative who should receive notifications
+        const relationship = await prisma.patientRelationship.findFirst({
+            where: {
+                patientId: params.patientId,
+                receivesNotifications: true
+            },
+            include: { relative: true }
+        });
+
+        let targetPhone = patient.phone;
+        let isRedirected = false;
+
+        if (relationship?.relative?.phone) {
+            targetPhone = relationship.relative.phone;
+            isRedirected = true;
+            console.log(`🔀 [REDIRECT] Redirecting message for ${patient.firstName} to Representative: ${relationship.relative.firstName} (${targetPhone})`);
+        }
+        // --------------------------------
+
         // Send via provider
         const result = await activeProvider.sendMessage({
-            to: patient.phone,
+            to: targetPhone, // Use redirected phone
             message: params.message,
             mediaUrl: params.mediaUrl
         });
@@ -168,9 +189,30 @@ export class NotificationService {
             });
         }
 
+
+        // --- FAMILY REDIRECTION LOGIC ---
+        // Check if patient has a representative who should receive notifications
+        const relationship = await prisma.patientRelationship.findFirst({
+            where: {
+                patientId: params.patientId,
+                receivesNotifications: true
+            },
+            include: { relative: true }
+        });
+
+        let targetPhone = patient.phone;
+        let isRedirected = false;
+
+        if (relationship?.relative?.phone) {
+            targetPhone = relationship.relative.phone;
+            isRedirected = true;
+            console.log(`🔀 [REDIRECT] Redirecting REMINDER for ${patient.id} to Representative: ${relationship.relative.firstName} (${targetPhone})`);
+        }
+        // --------------------------------
+
         // Send via Twilio (Official Templates)
         const result = await this.twilioProvider.sendMessage({
-            to: patient.phone,
+            to: targetPhone, // Use redirected phone
             message: '', // Not used with templates
             templateId: params.templateId,
             templateParams: {

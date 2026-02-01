@@ -6,17 +6,25 @@ import {
     createPatient,
     updatePatient,
     deletePatient,
-    mergePatients
+    mergePatients,
+    addPatientRelationship,
+    deletePatientRelationship
 } from '../controllers/patient.controller';
 
 const router = Router();
 
-router.get('/', authenticateToken, getPatients);
-router.get('/:id', authenticateToken, getPatientById);
-router.post('/', authenticateToken, createPatient);
-router.put('/:id', authenticateToken, updatePatient);
-router.patch('/:id', authenticateToken, updatePatient);
-router.post('/:id/merge', authenticateToken, mergePatients);
-router.delete('/:id', authenticateToken, deletePatient);
+router.use(authenticateToken); // All routes require auth
+
+router.get('/', getPatients);
+router.post('/', createPatient);
+router.get('/:id', getPatientById);
+router.put('/:id', updatePatient);
+router.patch('/:id', updatePatient); // Keep existing patch route
+router.delete('/:id', deletePatient);
+router.post('/:id/merge', mergePatients);
+
+// Family Relationships
+router.post('/:id/relationships', addPatientRelationship);
+router.delete('/relationships/:relationshipId', deletePatientRelationship);
 
 export default router;
