@@ -25,7 +25,10 @@ export class NotificationService {
 
     private async onBaileysChatUpdate(updates: any[]) {
         for (const update of updates) {
+            console.log(`📡 [CHATS-UPDATE] Payload:`, JSON.stringify(update));
+
             // If unreadCount becomes 0, it means it was read on the phone
+            // Some updates might use 'unreadCount: null' to signify cleared, or '0'
             if (update.unreadCount === 0 || update.unreadCount === null) {
                 const jid = update.id;
                 console.log(`👁️ [SYNC-READ] Chat ${jid} marked as read on Phone`);
