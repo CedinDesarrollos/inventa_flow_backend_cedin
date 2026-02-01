@@ -85,18 +85,49 @@ export class NotificationService {
     private async onBaileysMessageUpdate(updates: any[]) {
         for (const update of updates) {
             // update.update.status === 3 (READ) or 4 (PLAYED)
-            // update.key
             if (update.update?.status >= 3) {
                 const id = update.key.id;
                 console.log(`👁️ [READ-RECEIPT] Message ${id?.slice(-5)} was read/played`);
 
                 try {
-                    await prisma.conversationMessage.updateMany({
+                    // Update single message
+                    const msg = await prisma.conversationMessage.findFirst({
                         where: { externalId: id },
-                        data: { status: 'read' }
+                        select: { id: true, conversationId: true }
                     });
+
+                    if (msg) {
+                        await prisma.conversationMessage.update({
+                            where: { id: msg.id },
+                            data: { status: 'read' }
+                        });
+
+                        // Check if pending unread messages exist for this conversation
+                        const unreadCount = await prisma.conversationMessage.count({
+                            where: {
+                                conversationId: msg.conversationId,
+                                sender: 'patient',
+                                status: { not: 'read' }
+                            }
+                        });
+
+                        if (unreadCount === 0) {
+                            await prisma.conversation.update({
+                                where: { id: msg.conversationId },
+                                data: { unreadCount: 0 }
+                            });
+                            console.log(`✅ [SYNC-READ-MSG] All messages read. Cleared unread count for conversation ${msg.conversationId}`);
+                        } else {
+                            // Optional: Update to exact count
+                            await prisma.conversation.update({
+                                where: { id: msg.conversationId },
+                                data: { unreadCount: unreadCount }
+                            });
+                        }
+                    }
                 } catch (e) {
                     // ignore if not found
+                    console.error('Error handling message update:', e);
                 }
             }
         }
