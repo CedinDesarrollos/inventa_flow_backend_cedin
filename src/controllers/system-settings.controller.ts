@@ -17,7 +17,8 @@ const systemConfigSchema = z.object({
     reminders_enabled: z.boolean().optional(),
     reminder_window_start: z.string().optional(),
     reminder_window_end: z.string().optional(),
-    reminder_hours_before: z.number().optional()
+    reminder_hours_before: z.number().optional(),
+    patient_data_validation_enabled: z.boolean().optional()
 });
 
 export const getSettings = async (req: Request, res: Response) => {
@@ -27,6 +28,7 @@ export const getSettings = async (req: Request, res: Response) => {
             'clinicName', 'address', 'phone', 'taxName', 'taxId',
             'invoiceCode', 'timbrado', 'timezone', 'retentionMonths',
             'reminders_enabled', 'reminder_window_start', 'reminder_window_end', 'reminder_hours_before',
+            'patient_data_validation_enabled', // New
             CLINIC_CONFIG_KEY // Keep for legacy fallback if needed
         ];
 
@@ -47,7 +49,8 @@ export const getSettings = async (req: Request, res: Response) => {
             reminders_enabled: false,
             reminder_window_start: '09:00',
             reminder_window_end: '18:00',
-            reminder_hours_before: 24
+            reminder_hours_before: 24,
+            patient_data_validation_enabled: false
         };
 
         // If CLINIC_CONFIG exists, merge it first (legacy)
