@@ -23,6 +23,19 @@ export const getConversations = async (req: Request, res: Response) => {
                             },
                             orderBy: { date: 'asc' },
                             take: 1
+                        },
+                        transactions: {
+                            where: {
+                                balance: { gt: 0 },
+                                status: { in: ['PARTIAL', 'PENDING'] }
+                            },
+                            select: {
+                                id: true,
+                                balance: true,
+                                items: {
+                                    include: { service: true }
+                                }
+                            }
                         }
                     }
                 },
@@ -35,26 +48,39 @@ export const getConversations = async (req: Request, res: Response) => {
             orderBy: { lastMessageAt: 'desc' }
         });
 
-        const formatted = conversations.map(conv => ({
-            id: conv.id,
-            patientId: conv.patient.id,
-            patientName: `${conv.patient.firstName} ${conv.patient.lastName}`,
-            patientPhone: conv.patient.phone,
-            channel: conv.channel,
-            status: conv.status,
-            unreadCount: conv.unreadCount,
-            lastMessage: conv.messages[0] ? {
-                ...conv.messages[0],
-                timestamp: conv.messages[0].sentAt.toISOString(),
-                sender: conv.messages[0].sender === 'clinic' ? 'me' : 'patient'
-            } : null,
-            tags: conv.tags.map(t => t.tag),
-            // Additional context (for UI sidebar)
-            nextAppointment: conv.patient.appointments[0]?.date.toISOString() || null,
-            insurance: conv.patient.insurance?.name || 'Particular',
-            lastVisit: null,
-            outstandingBalance: null
-        }));
+        const formatted = conversations.map(conv => {
+            const totalDebt = conv.patient.transactions.reduce((sum, t) => sum + Number(t.balance), 0);
+
+            // Get service names from pending transactions
+            const pendingServices = conv.patient.transactions
+                .flatMap(t => t.items.map(i => i.service?.name || i.customDescription || 'Servicio'))
+                .filter((v, i, a) => a.indexOf(v) === i) // Unique
+                .join(', ');
+
+            return {
+                id: conv.id,
+                patientId: conv.patient.id,
+                patientName: `${conv.patient.firstName} ${conv.patient.lastName}`,
+                patientPhone: conv.patient.phone,
+                channel: conv.channel,
+                status: conv.status,
+                unreadCount: conv.unreadCount,
+                lastMessage: conv.messages[0] ? {
+                    ...conv.messages[0],
+                    timestamp: conv.messages[0].sentAt.toISOString(),
+                    sender: conv.messages[0].sender === 'clinic' ? 'me' : 'patient'
+                } : null,
+                tags: conv.tags.map(t => t.tag),
+                // Additional context (for UI sidebar)
+                nextAppointment: conv.patient.appointments[0]?.date.toISOString() || null,
+                insurance: conv.patient.insurance?.name || 'Particular',
+                lastVisit: null,
+                outstandingBalance: totalDebt > 0 ? {
+                    amount: totalDebt,
+                    concept: pendingServices
+                } : null
+            };
+        });
 
         res.json(formatted);
     } catch (error) {

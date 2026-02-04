@@ -75,7 +75,11 @@ export const getTransactions = async (req: Request, res: Response) => {
         const transactions = await prisma.transaction.findMany({
             where,
             include: {
-                patient: true,
+                patient: {
+                    include: {
+                        insurance: true
+                    }
+                },
                 author: {
                     select: {
                         id: true,
