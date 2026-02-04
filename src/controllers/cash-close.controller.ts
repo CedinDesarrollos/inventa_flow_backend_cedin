@@ -18,7 +18,7 @@ const getShiftRanges = (date: Date, shift: string) => {
     // Daily End (23:59 PYT) = 02:59 UTC (Next Day)
 
     const startUTC = new Date(`${dateStr}T03:00:00.000Z`);
-    const cutoffUTC = new Date(`${dateStr}T17:00:00.000Z`);
+    const cutoffUTC = new Date(`${dateStr}T20:00:00.000Z`);
 
     // End is 03:00 UTC on Next Day
     const endUTC = new Date(startUTC);
