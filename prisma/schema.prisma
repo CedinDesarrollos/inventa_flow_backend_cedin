@@ -22,43 +22,44 @@ model User {
   phone                 String?
   mustChangePassword    Boolean                @default(false) @map("must_change_password")
   appointments          Appointment[]
+  closes                CashClose[]            @relation("Closer")
   records               ClinicalRecord[]
   templates             Template[]
+  messages              ConversationMessage[]
+  inventoryMovements    InventoryMovement[]
   medicalVisits         MedicalVisit[]
   schedules             ProfessionalSchedule[]
   professional          Professional?
   processedTransactions Transaction[]          @relation("TransactionAuthor")
   doctorTransactions    Transaction[]          @relation("TransactionDoctor")
-  closes                CashClose[]            @relation("Closer")
-  messages              ConversationMessage[]
+  payments              Payment[]
 
   @@map("users")
   @@schema("inventa_clinical_app")
 }
 
 model Professional {
-  id                 String   @id @default(uuid())
-  userId             String   @unique @map("user_id")
-  firstName          String   @map("first_name")
-  lastName           String   @map("last_name")
+  id                 String      @id @default(uuid())
+  userId             String      @unique @map("user_id")
+  firstName          String      @map("first_name")
+  lastName           String      @map("last_name")
   specialty          String
-  registrationNumber String   @map("registration_number")
+  registrationNumber String      @map("registration_number")
   email              String
   phone              String?
   color              String
-  status             String   @default("active")
-  workingHours       Json?    @map("working_hours")
-  prescriptionHeader Json?    @map("prescription_header")
+  status             String      @default("active")
+  workingHours       Json?       @map("working_hours")
   integrations       Json?
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+  isActive           Boolean     @default(true) @map("is_active")
   gender             String?
   prefix             String?
-
-  user               User     @relation(fields: [userId], references: [id])
-  acceptedInsurances Insurance[] 
+  prescriptionHeader Json?       @map("prescription_header")
+  user               User        @relation(fields: [userId], references: [id])
   tariffs            Tariff[]
+  acceptedInsurances Insurance[] @relation("InsuranceToProfessional")
 
   @@map("professionals")
   @@schema("inventa_clinical_app")
@@ -80,61 +81,57 @@ model Branch {
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   appointments  Appointment[]
+  cashCloses    CashClose[]
+  costs         Cost[]
+  products      Product[]
   medicalVisits MedicalVisit[]
   patients      Patient[]
-  cashCloses    CashClose[]
 
   @@map("branches")
   @@schema("inventa_clinical_app")
 }
 
 model Patient {
-  id              String           @id @default(uuid())
-  firstName       String           @map("first_name")
-  lastName        String           @map("last_name")
-  identifier      String           @unique
-  email           String?
-  phone           String?
-  lid             String?          @unique // WhatsApp LID for precise matching
-  birthDate       DateTime?        @map("birth_date")
-  address         String?
-  insuranceId     String?          @map("insurance_id")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-  branchId        String?          @map("branch_id")
-  gender          String?
-  medicalHistory  Json?            @map("medical_history")
-  appointments    Appointment[]
-  clinicalRecords ClinicalRecord[]
-  conversations   Conversation[]
-  tags            PatientTag[]
-  branch          Branch?          @relation(fields: [branchId], references: [id])
-  insurance       Insurance?       @relation(fields: [insuranceId], references: [id])
-  prescriptions   Prescription[]
-  transactions    Transaction[]
-
-  // Relationships
-  relationshipsAsSubject  PatientRelationship[] @relation("PatientAsSubject") // I am the child
-  relationshipsAsRelative PatientRelationship[] @relation("PatientAsRelative") // I am the parent
+  id                      String                @id @default(uuid())
+  firstName               String                @map("first_name")
+  lastName                String                @map("last_name")
+  identifier              String                @unique
+  email                   String?
+  phone                   String?
+  birthDate               DateTime?             @map("birth_date")
+  address                 String?
+  insuranceId             String?               @map("insurance_id")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+  branchId                String?               @map("branch_id")
+  gender                  String?
+  medicalHistory          Json?                 @map("medical_history")
+  lid                     String?               @unique
+  appointments            Appointment[]
+  clinicalRecords         ClinicalRecord[]
+  conversations           Conversation[]
+  relationshipsAsSubject  PatientRelationship[] @relation("PatientAsSubject")
+  relationshipsAsRelative PatientRelationship[] @relation("PatientAsRelative")
+  tags                    PatientTag[]
+  branch                  Branch?               @relation(fields: [branchId], references: [id])
+  insurance               Insurance?            @relation(fields: [insuranceId], references: [id])
+  prescriptions           Prescription[]
+  transactions            Transaction[]
 
   @@map("patients")
   @@schema("inventa_clinical_app")
 }
 
 model PatientRelationship {
-  id          String   @id @default(uuid())
-  patientId   String   @map("patient_id")      // The child (receives service)
-  relativeId  String   @map("relative_id")     // The parent (responsible)
-  type        String   // "FATHER", "MOTHER", "TUTOR", "SIBLING", "OTHER"
-  isPrimary   Boolean  @default(false) @map("is_primary") 
-  
-  // If true, notifications for patientId will be sent to relativeId
-  receivesNotifications Boolean @default(true) @map("receives_notifications")
-
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  patient     Patient  @relation("PatientAsSubject", fields: [patientId], references: [id])
-  relative    Patient  @relation("PatientAsRelative", fields: [relativeId], references: [id])
+  id                    String   @id @default(uuid())
+  patientId             String   @map("patient_id")
+  relativeId            String   @map("relative_id")
+  type                  String
+  isPrimary             Boolean  @default(false) @map("is_primary")
+  receivesNotifications Boolean  @default(true) @map("receives_notifications")
+  createdAt             DateTime @default(now()) @map("created_at")
+  patient               Patient  @relation("PatientAsSubject", fields: [patientId], references: [id])
+  relative              Patient  @relation("PatientAsRelative", fields: [relativeId], references: [id])
 
   @@unique([patientId, relativeId])
   @@map("patient_relationships")
@@ -159,33 +156,33 @@ model Service {
 }
 
 model Insurance {
-  id           String    @id @default(uuid())
-  name         String
-  ruc          String?
-  contactName  String?   @map("contact_name")
-  contactEmail String?   @map("contact_email")
-  contactPhone String?   @map("contact_phone")
-  coverageType String    @map("coverage_type")
-  status       String    @default("active")
-  requiresAuth Boolean   @default(false) @map("requires_auth")
-  patients     Patient[]
-  tariffs      Tariff[]
-  acceptedByProfessionals Professional[]
+  id                      String         @id @default(uuid())
+  name                    String
+  ruc                     String?
+  contactName             String?        @map("contact_name")
+  contactEmail            String?        @map("contact_email")
+  contactPhone            String?        @map("contact_phone")
+  coverageType            String         @map("coverage_type")
+  status                  String         @default("active")
+  requiresAuth            Boolean        @default(false) @map("requires_auth")
+  patients                Patient[]
+  tariffs                 Tariff[]
+  acceptedByProfessionals Professional[] @relation("InsuranceToProfessional")
 
   @@map("insurances")
   @@schema("inventa_clinical_app")
 }
 
 model Tariff {
-  id           String    @id @default(uuid())
-  insuranceId  String    @map("insurance_id")
-  serviceId    String    @map("service_id")
-  professionalId String? @map("professional_id")
-  coverageType String    @map("coverage_type")
-  value        Decimal   @db.Decimal(10, 2)
-  insurance    Insurance @relation(fields: [insuranceId], references: [id])
-  service      Service   @relation(fields: [serviceId], references: [id])
-  professional Professional? @relation(fields: [professionalId], references: [id])
+  id             String        @id @default(uuid())
+  insuranceId    String        @map("insurance_id")
+  serviceId      String        @map("service_id")
+  coverageType   String        @map("coverage_type")
+  value          Decimal       @db.Decimal(10, 2)
+  professionalId String?       @map("professional_id")
+  insurance      Insurance     @relation(fields: [insuranceId], references: [id])
+  professional   Professional? @relation(fields: [professionalId], references: [id])
+  service        Service       @relation(fields: [serviceId], references: [id])
 
   @@unique([insuranceId, serviceId, professionalId])
   @@map("tariffs")
@@ -200,7 +197,6 @@ model Appointment {
   duration           Int
   type               AppointmentType
   status             AppointmentStatus     @default(SCHEDULED)
-  paymentStatus      PaymentStatus         @default(PENDING) @map("payment_status")
   reason             String?
   notes              String?
   createdAt          DateTime              @default(now()) @map("created_at")
@@ -213,8 +209,9 @@ model Appointment {
   externalId         String?               @map("external_id")
   legacy_tipoReserva String?               @map("legacy_tipo_reserva")
   secretaryNote      String?               @map("secretary_note")
-  startedAt          DateTime?             @map("started_at")
+  paymentStatus      PaymentStatus         @default(PENDING) @map("payment_status")
   completedAt        DateTime?             @map("completed_at")
+  startedAt          DateTime?             @map("started_at")
   reminders          AppointmentReminder[]
   branch             Branch?               @relation(fields: [branchId], references: [id])
   doctor             User?                 @relation(fields: [doctorId], references: [id])
@@ -277,11 +274,10 @@ model ClinicalRecord {
   content       Json
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
+  vitalSigns    Json?          @map("vital_signs")
   doctor        User?          @relation(fields: [doctorId], references: [id])
   patient       Patient        @relation(fields: [patientId], references: [id])
   prescriptions Prescription[]
-
-  vitalSigns Json? @map("vital_signs")
 
   @@map("clinical_records")
   @@schema("inventa_clinical_app")
@@ -364,7 +360,7 @@ model Transaction {
   patientId         String            @map("patient_id")
   authorId          String?           @map("author_id")
   type              TransactionType
-  status            TransactionStatus @default(COMPLETED)
+  status            TransactionStatus @default(PENDING)
   paymentMethod     PaymentMethod     @map("payment_method")
   paymentCode       String?           @map("payment_code")
   paymentReceiptUrl String?           @map("payment_receipt_url")
@@ -374,12 +370,15 @@ model Transaction {
   subtotal          Decimal           @db.Decimal(10, 2)
   savings           Decimal           @default(0) @db.Decimal(10, 2)
   total             Decimal           @db.Decimal(10, 2)
+  amountPaid        Decimal           @default(0) @map("amount_paid") @db.Decimal(10, 2)
+  balance           Decimal           @default(0) @map("balance") @db.Decimal(10, 2)
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
   doctorId          String?           @map("doctor_id")
   exoneratedAmount  Decimal           @default(0) @map("exonerated_amount") @db.Decimal(10, 2)
   observation       String?           @map("observation")
   items             TransactionItem[]
+  payments          Payment[]
   author            User?             @relation("TransactionAuthor", fields: [authorId], references: [id])
   doctor            User?             @relation("TransactionDoctor", fields: [doctorId], references: [id])
   patient           Patient           @relation(fields: [patientId], references: [id])
@@ -389,18 +388,35 @@ model Transaction {
 }
 
 model TransactionItem {
-  id            String      @id @default(uuid())
-  transactionId String      @map("transaction_id")
-  serviceId     String?     @map("service_id")
-  customDescription String? @map("custom_description")
-  quantity      Int         @default(1)
-  unitPrice     Decimal     @map("unit_price") @db.Decimal(10, 2)
-  coverage      Decimal     @default(0) @db.Decimal(10, 2)
-  copay         Decimal     @db.Decimal(10, 2)
-  service       Service?    @relation(fields: [serviceId], references: [id])
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  id                String      @id @default(uuid())
+  transactionId     String      @map("transaction_id")
+  serviceId         String?     @map("service_id")
+  quantity          Int         @default(1)
+  unitPrice         Decimal     @map("unit_price") @db.Decimal(10, 2)
+  coverage          Decimal     @default(0) @db.Decimal(10, 2)
+  copay             Decimal     @db.Decimal(10, 2)
+  customDescription String?     @map("custom_description")
+  service           Service?    @relation(fields: [serviceId], references: [id])
+  transaction       Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@map("transaction_items")
+  @@schema("inventa_clinical_app")
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  transactionId String        @map("transaction_id")
+  amount        Decimal       @db.Decimal(10, 2)
+  paymentMethod PaymentMethod @map("payment_method")
+  paymentCode   String?       @map("payment_code")
+  receiptUrl    String?       @map("receipt_url")
+  notes         String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  createdBy     String?       @map("created_by")
+  transaction   Transaction   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  user          User?         @relation(fields: [createdBy], references: [id])
+
+  @@map("payments")
   @@schema("inventa_clinical_app")
 }
 
@@ -412,10 +428,10 @@ model MedicalVisit {
   professionalId String      @map("professional_id")
   notes          String?
   status         VisitStatus @default(WAITING)
-  startedAt      DateTime?   @map("started_at")
-  completedAt    DateTime?   @map("completed_at")
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
+  completedAt    DateTime?   @map("completed_at")
+  startedAt      DateTime?   @map("started_at")
   branch         Branch      @relation(fields: [branchId], references: [id])
   professional   User        @relation(fields: [professionalId], references: [id])
 
@@ -448,9 +464,6 @@ model ConversationMessage {
   id             String       @id @default(uuid())
   conversationId String       @map("conversation_id")
   content        String
-  provider       String       @default("twilio") // "twilio" | "baileys"
-  fromNumber     String?      @map("from_number")
-  toNumber       String?      @map("to_number")
   type           String       @default("text")
   sender         String
   status         String       @default("sent")
@@ -461,8 +474,11 @@ model ConversationMessage {
   externalUrl    String?      @map("external_url")
   sentAt         DateTime     @default(now()) @map("sent_at")
   userId         String?      @map("user_id")
-  user           User?        @relation(fields: [userId], references: [id])
+  fromNumber     String?      @map("from_number")
+  provider       String       @default("twilio")
+  toNumber       String?      @map("to_number")
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id])
 
   @@map("conversation_messages")
   @@schema("inventa_clinical_app")
@@ -509,6 +525,120 @@ model NpsResponse {
   @@schema("inventa_clinical_app")
 }
 
+model CashClose {
+  id             String   @id @default(uuid())
+  date           DateTime
+  closedAt       DateTime @default(now()) @map("closed_at")
+  closedBy       String   @map("closed_by")
+  branchId       String?  @map("branch_id")
+  totalCash      Decimal  @default(0) @map("total_cash") @db.Decimal(10, 2)
+  totalCard      Decimal  @default(0) @map("total_card") @db.Decimal(10, 2)
+  totalInsurance Decimal  @default(0) @map("total_insurance") @db.Decimal(10, 2)
+  totalAmount    Decimal  @default(0) @map("total_amount") @db.Decimal(10, 2)
+  signatures     Json     @default("[]")
+  status         String   @default("OPEN")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  shift          String   @default("ALL_DAY")
+  branch         Branch?  @relation(fields: [branchId], references: [id])
+  closer         User     @relation("Closer", fields: [closedBy], references: [id])
+
+  @@map("cash_closes")
+  @@schema("inventa_clinical_app")
+}
+
+model BaileysSession {
+  id        String   @id
+  data      String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("baileys_sessions")
+  @@schema("inventa_clinical_app")
+}
+
+model CostCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  type        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  costs       Cost[]
+
+  @@map("cost_categories")
+  @@schema("inventa_clinical_app")
+}
+
+model Cost {
+  id                String       @id @default(uuid())
+  categoryId        String       @map("category_id")
+  description       String
+  amount            Decimal      @db.Decimal(10, 2)
+  date              DateTime
+  isRecurring       Boolean      @default(false) @map("is_recurring")
+  recurrenceRule    String?      @map("recurrence_rule")
+  recurringParentId String?      @map("recurring_parent_id")
+  branchId          String?      @map("branch_id")
+  receiptUrl        String?      @map("receipt_url")
+  notes             String?
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  createdBy         String?      @map("created_by")
+  branch            Branch?      @relation(fields: [branchId], references: [id])
+  category          CostCategory @relation(fields: [categoryId], references: [id])
+  parent            Cost?        @relation("RecurringHistory", fields: [recurringParentId], references: [id])
+  children          Cost[]       @relation("RecurringHistory")
+  inventoryMovements InventoryMovement[]
+
+  @@index([date])
+  @@index([categoryId])
+  @@index([branchId])
+  @@index([recurringParentId])
+  @@map("costs")
+  @@schema("inventa_clinical_app")
+}
+
+model Product {
+  id           String   @id @default(uuid())
+  name         String
+  sku          String?  @unique
+  category     String?
+  description  String?
+  currentStock Int      @default(0) @map("current_stock")
+  minStock     Int      @default(5) @map("min_stock")
+  unit         String   @default("units")
+  costPrice    Decimal? @map("cost_price") @db.Decimal(10, 2)
+  salePrice    Decimal? @map("sale_price") @db.Decimal(10, 2)
+  branchId     String?  @map("branch_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  branch       Branch?  @relation(fields: [branchId], references: [id])
+  movements    InventoryMovement[]
+
+  @@map("products")
+  @@schema("inventa_clinical_app")
+}
+
+model InventoryMovement {
+  id          String   @id @default(uuid())
+  productId   String   @map("product_id")
+  type        String   // "IN", "OUT", "ADJUSTMENT"
+  quantity    Int
+  notes       String?
+  costId      String?  @map("cost_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String?  @map("created_by")
+
+  product     Product  @relation(fields: [productId], references: [id])
+  cost        Cost?    @relation(fields: [costId], references: [id])
+  user        User?    @relation(fields: [createdBy], references: [id])
+
+  @@map("inventory_movements")
+  @@schema("inventa_clinical_app")
+}
+
 enum Role {
   ADMIN
   PROFESSIONAL
@@ -529,12 +659,12 @@ enum AppointmentType {
 enum AppointmentStatus {
   SCHEDULED
   CONFIRMED
-  ARRIVED
   COMPLETED
   CANCELLED
   NO_SHOW
   IN_PROGRESS
   BILLED
+  ARRIVED
 
   @@schema("inventa_clinical_app")
 }
@@ -564,13 +694,13 @@ enum PaymentMethod {
 }
 
 enum TransactionStatus {
+  PENDING
+  PARTIAL
   COMPLETED
   VOIDED
 
   @@schema("inventa_clinical_app")
 }
-
-
 
 enum VisitStatus {
   WAITING
@@ -578,45 +708,5 @@ enum VisitStatus {
   COMPLETED
   CANCELLED
 
-  @@schema("inventa_clinical_app")
-}
-
-model CashClose {
-  id              String   @id @default(uuid())
-  date            DateTime // The day being closed (e.g. 2026-01-20 00:00:00)
-  closedAt        DateTime @default(now()) @map("closed_at")
-  closedBy        String   @map("closed_by") // User ID of the cashier/person initializing
-  
-  branchId        String?  @map("branch_id")
-  
-  // Financial Snapshot
-  totalCash       Decimal  @default(0) @map("total_cash") @db.Decimal(10, 2)
-  totalCard       Decimal  @default(0) @map("total_card") @db.Decimal(10, 2)
-  totalInsurance  Decimal  @default(0) @map("total_insurance") @db.Decimal(10, 2)
-  totalAmount     Decimal  @default(0) @map("total_amount") @db.Decimal(10, 2)
-  
-  // Signatures
-  signatures      Json     @default("[]") 
-  // Structure: { role: string, userId: string, name: string, timestamp: string, note: string }[]
-
-  status          String   @default("OPEN") // OPEN, CLOSED, VERIFIED
-  shift           String   @default("ALL_DAY") // ALL_DAY, MORNING, AFTERNOON
-
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  
-  branch          Branch?  @relation(fields: [branchId], references: [id])
-  closer          User     @relation("Closer", fields: [closedBy], references: [id])
-
-  @@map("cash_closes")
-  @@schema("inventa_clinical_app")
-}
-
-model BaileysSession {
-  id        String   @id
-  data      String   @db.Text
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("baileys_sessions")
   @@schema("inventa_clinical_app")
 }

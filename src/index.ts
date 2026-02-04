@@ -33,6 +33,9 @@ import automationRoutes from './routes/automation.routes';
 import whatsappRoutes from './routes/whatsapp.routes';
 import medicationRoutes from './routes/medication.routes';
 import cashCloseRoutes from './routes/cash-close.routes';
+import costRoutes from './routes/cost.routes';
+import productRoutes from './routes/product.routes';
+import paymentRoutes from './routes/payment.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { initNpsCron } from './jobs/npsCron';
 import { notificationService } from './services/notifications/NotificationService';
@@ -135,8 +138,11 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/automations', automationRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
-app.use('/api/medications', medicationRoutes);
 app.use('/api/cash-close', cashCloseRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api', paymentRoutes);
+app.use('/api/medications', medicationRoutes);
+app.use('/api', costRoutes);
 import { initBirthdayCron } from './jobs/birthdayCron';
 
 import { initConversationCleanup } from './jobs/conversationCleanup';
@@ -173,7 +179,7 @@ app.listen(port, () => {
     initConversationCleanup();
 
     // Initialize Global Notification Service (WhatsApp connections)
-    notificationService.initialize().catch(err => console.error('Failed to initialize NotificationService:', err));
+    // notificationService.initialize().catch(err => console.error('Failed to initialize NotificationService:', err));
 });
 
 process.on('SIGTERM', async () => {

@@ -27,6 +27,7 @@ const createTransactionSchema = z.object({
     savings: z.number().min(0),
     exoneratedAmount: z.number().min(0).optional().default(0),
     total: z.number().min(0), // Allow 0 when fully covered
+    initialPayment: z.number().min(0).optional(), // Optional initial payment
     observation: z.string().optional(),
     items: z.array(transactionItemSchema)
 });
@@ -69,6 +70,8 @@ export const getTransactions = async (req: Request, res: Response) => {
             });
         }
 
+        console.log('Final where clause:', JSON.stringify(where, null, 2));
+
         const transactions = await prisma.transaction.findMany({
             where,
             include: {
@@ -98,10 +101,12 @@ export const getTransactions = async (req: Request, res: Response) => {
             }
         });
 
+        console.log(`Found ${transactions.length} transactions`);
         res.json(transactions);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error al obtener transacciones' });
+    } catch (error: any) {
+        console.error('Error fetching transactions:', error);
+        console.error('Stack:', error.stack);
+        res.status(500).json({ error: 'Error al obtener transacciones', details: error.message });
     }
 };
 
@@ -150,6 +155,11 @@ export const createTransaction = async (req: Request, res: Response) => {
 
         // Start transaction to ensure atomicity
         const result = await prisma.$transaction(async (tx) => {
+            // Calculate balance based on initial payment
+            const initialPayment = data.initialPayment || 0;
+            const balance = data.total - initialPayment;
+            const status = balance === 0 ? 'COMPLETED' : initialPayment > 0 ? 'PARTIAL' : 'PENDING';
+
             const transaction = await tx.transaction.create({
                 data: {
                     patientId: data.patientId,
@@ -166,6 +176,9 @@ export const createTransaction = async (req: Request, res: Response) => {
                     savings: data.savings,
                     exoneratedAmount: data.exoneratedAmount,
                     total: data.total,
+                    amountPaid: initialPayment,
+                    balance: balance,
+                    status: status,
                     observation: data.observation,
                     items: {
                         create: data.items.map(item => ({
@@ -191,9 +204,25 @@ export const createTransaction = async (req: Request, res: Response) => {
                         include: {
                             service: true
                         }
-                    }
+                    },
+                    payments: true
                 }
             });
+
+            // Create initial payment record if payment was made
+            if (initialPayment > 0) {
+                await tx.payment.create({
+                    data: {
+                        transactionId: transaction.id,
+                        amount: initialPayment,
+                        paymentMethod: data.paymentMethod,
+                        paymentCode: data.paymentCode,
+                        receiptUrl: data.paymentReceiptUrl,
+                        notes: 'Initial payment',
+                        createdBy: userId
+                    }
+                });
+            }
 
             // Update Appointment Payment Status if linked
             if (data.appointmentId) {

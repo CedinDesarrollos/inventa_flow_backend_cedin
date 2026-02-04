@@ -31,6 +31,7 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
 
         const bId = branchId ? String(branchId) : undefined;
 
+        console.log('Querying existing close...');
         // 1. Check if a Close exists for this shift
         const existingClose = await prisma.cashClose.findFirst({
             where: {
@@ -47,34 +48,40 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
                 }
             }
         });
+        console.log('Existing close:', existingClose);
 
-        // 2. Calculate Live Totals based on shifted time range
-        const transactions = await prisma.transaction.findMany({
+        // 2. Calculate Live Totals from Payments (not Transactions)
+        // This ensures we count actual money received, not just invoiced amounts
+        console.log('Querying payments...');
+        const payments = await prisma.payment.findMany({
             where: {
                 createdAt: {
                     gte: start,
                     lte: end
-                },
-                status: 'COMPLETED',
+                }
             }
         });
+        console.log(`Found ${payments.length} payments`);
 
-        const liveTotals = transactions.reduce((acc, t) => {
-            acc.total += Number(t.total);
-            if (t.paymentMethod === 'CASH') acc.cash += Number(t.total);
-            else if (t.paymentMethod === 'CARD') acc.card += Number(t.total);
-            else if (t.paymentMethod === 'INSURANCE') acc.insurance += Number(t.total);
+        const liveTotals = payments.reduce((acc: { total: number; cash: number; card: number; insurance: number }, p) => {
+            const amount = Number(p.amount);
+            acc.total += amount;
+            if (p.paymentMethod === 'CASH') acc.cash += amount;
+            else if (p.paymentMethod === 'CARD') acc.card += amount;
+            else if (p.paymentMethod === 'INSURANCE') acc.insurance += amount;
             return acc;
         }, { total: 0, cash: 0, card: 0, insurance: 0 });
+
 
         res.json({
             close: existingClose,
             liveTotals
         });
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error getting cash close:', error);
-        res.status(500).json({ error: 'Error getting cash close status' });
+        console.error('Stack:', error.stack);
+        res.status(500).json({ error: 'Error getting cash close status', details: error.message });
     }
 };
 
