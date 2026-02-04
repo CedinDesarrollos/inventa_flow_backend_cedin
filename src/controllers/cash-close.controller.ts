@@ -2,6 +2,41 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { startOfDay, endOfDay } from 'date-fns';
 
+const TIMEZONE_OFFSET = 3; // UTC-3 (PYT)
+
+// Helper to get ranges using explicit UTC strings to avoid server timezone issues
+const getShiftRanges = (date: Date, shift: string) => {
+    // Format date as YYYY-MM-DD
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+
+    // Paraguay is UTC-3.
+    // Daily Start (00:00 PYT) = 03:00 UTC
+    // Shift Cutoff (14:00 PYT) = 17:00 UTC
+    // Daily End (23:59 PYT) = 02:59 UTC (Next Day)
+
+    const startUTC = new Date(`${dateStr}T03:00:00.000Z`);
+    const cutoffUTC = new Date(`${dateStr}T17:00:00.000Z`);
+
+    // End is 03:00 UTC on Next Day
+    const endUTC = new Date(startUTC);
+    endUTC.setDate(endUTC.getDate() + 1);
+    endUTC.setUTCHours(2, 59, 59, 999); // Approx end of day tolerance
+
+    if (shift === 'MORNING') {
+        return { start: startUTC, end: cutoffUTC };
+    }
+
+    if (shift === 'AFTERNOON') {
+        return { start: cutoffUTC, end: endUTC };
+    }
+
+    // ALL_DAY
+    return { start: startUTC, end: endUTC };
+};
+
 export const getCashCloseStatus = async (req: Request, res: Response) => {
     try {
         const { date, branchId, shift = 'ALL_DAY' } = req.query;
@@ -11,35 +46,31 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
         }
 
         const queryDate = new Date(String(date));
-        // Base ranges for the day
-        let start = startOfDay(queryDate);
-        const dayEnd = endOfDay(queryDate);
-        let end = dayEnd;
+        const { start, end } = getShiftRanges(queryDate, String(shift));
 
-        // Apply Shift Logic
-        const shiftType = String(shift);
-        if (shiftType === 'MORNING') {
-            // 00:00 to 13:00
-            end = new Date(start);
-            end.setHours(13, 0, 0, 0);
-        } else if (shiftType === 'AFTERNOON') {
-            // 13:00 to 23:59:59
-            const newStart = new Date(start);
-            newStart.setHours(13, 0, 0, 0);
-            start = newStart;
-        }
+        // For existing close, we search by the DATE field (stored as date object).
+        // If we store it as 00:00 UTC, we should match closely?
+        // Actually CashClose has `date` field.
+        // It also has `shift` field string.
+        // We just need to match the day and shift.
+        // `queryDate` is likely 00:00 UTC. 
+        // We should search for close record created for this DAY.
+        // The Close record `date` usually stores the "Day" it represents.
+        // Let's use flexible day match (UTC day).
+        const dayStartUTC = startOfDay(queryDate);
+        const dayEndUTC = endOfDay(queryDate);
 
         const bId = branchId ? String(branchId) : undefined;
+        const shiftType = String(shift);
 
         console.log('Querying existing close...');
-        // 1. Check if a Close exists for this shift
         const existingClose = await prisma.cashClose.findFirst({
             where: {
                 date: {
-                    gte: startOfDay(queryDate), // Ensure we match the "day"
-                    lte: dayEnd
+                    gte: dayStartUTC,
+                    lte: dayEndUTC
                 },
-                shift: shiftType, // Match specific shift
+                shift: shiftType,
                 ...(bId ? { branchId: bId } : {})
             },
             include: {
@@ -48,11 +79,9 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
                 }
             }
         });
-        console.log('Existing close:', existingClose);
 
-        // 2. Calculate Live Totals from Payments (not Transactions)
-        // This ensures we count actual money received, not just invoiced amounts
-        console.log('Querying payments...');
+        // 2. Calculate Live Totals from Payments
+        // Using adjusted timezone ranges
         const payments = await prisma.payment.findMany({
             where: {
                 createdAt: {
@@ -61,7 +90,6 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
                 }
             }
         });
-        console.log(`Found ${payments.length} payments`);
 
         const liveTotals = payments.reduce((acc: { total: number; cash: number; card: number; insurance: number }, p) => {
             const amount = Number(p.amount);
@@ -87,7 +115,6 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
 
 export const signCashClose = async (req: Request, res: Response) => {
     try {
-        // userId comes from auth middleware
         const userId = (req as any).user?.userId;
         const { date, branchId, note, role, totals, shift = 'ALL_DAY' } = req.body;
 
@@ -101,7 +128,6 @@ export const signCashClose = async (req: Request, res: Response) => {
         const bId = branchId || null;
         const shiftType = String(shift);
 
-        // Find existing or create for this specific shift
         let cashClose = await prisma.cashClose.findFirst({
             where: {
                 date: { gte: dayStart, lte: dayEnd },

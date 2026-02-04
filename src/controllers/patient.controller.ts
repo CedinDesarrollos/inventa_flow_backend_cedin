@@ -71,10 +71,23 @@ export const getPatients = async (req: Request, res: Response) => {
                 insurance: true,
                 tags: {
                     include: { tag: true }
+                },
+                appointments: {
+                    where: { status: 'COMPLETED' },
+                    orderBy: { date: 'desc' },
+                    take: 1,
+                    select: { date: true }
                 }
             }
         });
-        res.json(patients);
+
+        const mappedPatients = patients.map(p => ({
+            ...p,
+            lastVisit: p.appointments[0]?.date || null,
+            appointments: undefined // Remove from response to keep it clean if not needed, or keep it.
+        }));
+
+        res.json(mappedPatients);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Error al obtener pacientes' });
