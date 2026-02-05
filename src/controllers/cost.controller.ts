@@ -18,12 +18,12 @@ const costSchema = z.object({
     isRecurring: z.boolean().optional().default(false),
     recurrenceRule: z.enum(['MONTHLY', 'QUARTERLY', 'YEARLY']).optional(),
     branchId: z.string().uuid().optional(),
-    receiptUrl: z.string().url().optional(),
+    receiptUrl: z.string().url().optional().or(z.literal('')),
     notes: z.string().optional(),
     items: z.array(z.object({
         productId: z.string().uuid(),
         quantity: z.number().int().positive(),
-        unitPrice: z.number().positive().optional()
+        unitPrice: z.number().nonnegative().optional()
     })).optional()
 });
 
