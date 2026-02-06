@@ -1,3 +1,4 @@
+import type { Request, Response } from 'express';
 import { DateTime } from 'luxon';
 import { prisma } from '../lib/prisma';
 import { MediaDownloadService } from '../services/media/MediaDownloadService';
