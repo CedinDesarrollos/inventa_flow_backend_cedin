@@ -33,6 +33,7 @@ model User {
   processedTransactions Transaction[]          @relation("TransactionAuthor")
   doctorTransactions    Transaction[]          @relation("TransactionDoctor")
   payments              Payment[]
+  notificationAlerts    Notification[]
 
   @@map("users")
   @@schema("inventa_clinical_app")
@@ -708,5 +709,21 @@ enum VisitStatus {
   COMPLETED
   CANCELLED
 
+  @@schema("inventa_clinical_app")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id") // Optional target user (admin/doctor)
+  type      String   // 'info', 'success', 'warning', 'error'
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  link      String?  // Optional deep link
+  
+  user      User?    @relation(fields: [userId], references: [id])
+  
+  @@map("notifications")
   @@schema("inventa_clinical_app")
 }

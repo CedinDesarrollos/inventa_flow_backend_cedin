@@ -144,8 +144,13 @@ app.use('/api', paymentRoutes);
 app.use('/api/medications', medicationRoutes);
 app.use('/api', costRoutes);
 import { initBirthdayCron } from './jobs/birthdayCron';
-
+import notificationRoutes from './routes/notification.routes';
 import { initConversationCleanup } from './jobs/conversationCleanup';
+
+// ... (existing imports)
+
+app.use('/api', costRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health Check
 app.get('/api/health', (req, res) => {

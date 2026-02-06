@@ -1,4 +1,4 @@
-import type { Request, Response } from 'express';
+import { DateTime } from 'luxon';
 import { prisma } from '../lib/prisma';
 import { MediaDownloadService } from '../services/media/MediaDownloadService';
 import { NotificationService } from '../services/notifications/NotificationService';
@@ -196,6 +196,10 @@ export const handleTwilioIncoming = async (req: Request, res: Response) => {
 /**
  * Handle Quick Reply button responses (Phase 2)
  */
+import { createNotification } from './notification.controller';
+
+// ...
+
 async function handleQuickReplyResponse(conversation: any, patient: any, payload: string) {
     const notificationService = new NotificationService();
     await notificationService.initialize();
@@ -228,6 +232,15 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                         data: { status: 'confirmed' }
                     });
                 }
+
+                // [Notification]
+                const dateStr = DateTime.fromJSDate(appointment.date).toFormat('dd/MM HH:mm');
+                await createNotification({
+                    type: 'success',
+                    title: 'Cita Confirmada',
+                    message: `${patient.firstName} ${patient.lastName} confirmó su consulta del ${dateStr} hs.`,
+                    link: `/citas?id=${appointment.id}`
+                });
             }
 
             await notificationService.sendMessage({
@@ -274,6 +287,15 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                         data: { status: 'cancelled' }
                     });
                 }
+
+                // [Notification]
+                const dateStr = DateTime.fromJSDate(appointmentToCancel.date).toFormat('dd/MM HH:mm');
+                await createNotification({
+                    type: 'error',
+                    title: 'Cita Cancelada',
+                    message: `${patient.firstName} ${patient.lastName} canceló su cita del ${dateStr} hs.`,
+                    link: `/citas?id=${appointmentToCancel.id}`
+                });
             }
 
             await notificationService.sendMessage({
@@ -314,6 +336,15 @@ async function handleQuickReplyResponse(conversation: any, patient: any, payload
                         data: { status: 'rescheduled' }
                     });
                 }
+
+                // [Notification]
+                const dateStr = DateTime.fromJSDate(appointmentToReschedule.date).toFormat('dd/MM HH:mm');
+                await createNotification({
+                    type: 'warning',
+                    title: 'Solicitud de Reagendamiento',
+                    message: `${patient.firstName} ${patient.lastName} solicitó reagendar su consulta del ${dateStr} hs.`,
+                    link: `/chat?patientId=${patient.id}`
+                });
             }
 
             await notificationService.sendMessage({
