@@ -4,8 +4,8 @@ import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 const connectionString = process.env.DATABASE_URL;
-console.log('Using connection string:', connectionString);
-console.log('Using options: -c search_path=inventa_clinical_app');
+
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
 const pool = new Pool({
     connectionString,
@@ -14,4 +14,6 @@ const pool = new Pool({
 });
 const adapter = new PrismaPg(pool);
 
-export const prisma = new PrismaClient({ adapter });
+export const prisma = globalForPrisma.prisma || new PrismaClient({ adapter });
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;

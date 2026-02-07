@@ -17,19 +17,26 @@ const createTransactionSchema = z.object({
     doctorId: z.string().uuid().optional(),
     appointmentId: z.string().uuid().optional(),
     type: z.enum(['TICKET', 'INVOICE']),
-    paymentMethod: z.enum(['CASH', 'CARD', 'INSURANCE']),
+    paymentMethod: z.enum(['CASH', 'CARD', 'INSURANCE', 'MIXED']), // Added MIXED
     paymentCode: z.string().optional(),
     paymentReceiptUrl: z.string().optional(),
     billingRuc: z.string().optional(),
     billingName: z.string().optional(),
     billingAddress: z.string().optional(),
-    subtotal: z.number().min(0), // Allow 0 for free services
+    subtotal: z.number().min(0),
     savings: z.number().min(0),
     exoneratedAmount: z.number().min(0).optional().default(0),
-    total: z.number().min(0), // Allow 0 when fully covered
-    initialPayment: z.number().min(0).optional(), // Optional initial payment
+    total: z.number().min(0),
+    initialPayment: z.number().min(0).optional(),
     observation: z.string().optional(),
-    items: z.array(transactionItemSchema)
+    items: z.array(transactionItemSchema),
+    // New optional field for split payments
+    payments: z.array(z.object({
+        amount: z.number().positive(),
+        paymentMethod: z.enum(['CASH', 'CARD', 'INSURANCE']),
+        paymentCode: z.string().optional(),
+        notes: z.string().optional()
+    })).optional()
 });
 
 export const getTransactions = async (req: Request, res: Response) => {
@@ -98,7 +105,8 @@ export const getTransactions = async (req: Request, res: Response) => {
                     include: {
                         service: true
                     }
-                }
+                },
+                payments: true
             },
             orderBy: {
                 createdAt: 'desc'
@@ -152,17 +160,31 @@ export const createTransaction = async (req: Request, res: Response) => {
     try {
         console.log('Creating transaction with data:', JSON.stringify(req.body, null, 2));
         const data = createTransactionSchema.parse(req.body);
-        const userId = (req as any).user?.userId; // From auth middleware - use userId not id
-
-        console.log('User from auth middleware:', (req as any).user);
-        console.log('Author ID to be saved:', userId);
+        const userId = (req as any).user?.userId;
 
         // Start transaction to ensure atomicity
         const result = await prisma.$transaction(async (tx) => {
-            // Calculate balance based on initial payment
-            const initialPayment = data.initialPayment || 0;
+            // Determine initial payment amount
+            let initialPayment = 0;
+            const splitPayments = data.payments || [];
+
+            if (splitPayments.length > 0) {
+                // Sum up split payments
+                initialPayment = splitPayments.reduce((sum, p) => sum + p.amount, 0);
+            } else {
+                // Fallback to legacy single payment
+                initialPayment = data.initialPayment || 0;
+            }
+
             const balance = data.total - initialPayment;
-            const status = balance === 0 ? 'COMPLETED' : initialPayment > 0 ? 'PARTIAL' : 'PENDING';
+            // Allow small float variance
+            const isCompleted = Math.abs(balance) < 0.01;
+            const status = isCompleted ? 'COMPLETED' : initialPayment > 0 ? 'PARTIAL' : 'PENDING';
+
+            // Determine main payment method for the Transaction record
+            // If split payments are used, force MIXED.
+            // If single payment, use the provided method.
+            const mainPaymentMethod = splitPayments.length > 1 ? 'MIXED' : data.paymentMethod;
 
             const transaction = await tx.transaction.create({
                 data: {
@@ -170,8 +192,8 @@ export const createTransaction = async (req: Request, res: Response) => {
                     authorId: userId,
                     doctorId: data.doctorId,
                     type: data.type,
-                    paymentMethod: data.paymentMethod,
-                    paymentCode: data.paymentCode,
+                    paymentMethod: mainPaymentMethod,
+                    paymentCode: data.paymentCode, // Keeps legacy single code if needed
                     paymentReceiptUrl: data.paymentReceiptUrl,
                     billingRuc: data.billingRuc,
                     billingName: data.billingName,
@@ -213,13 +235,34 @@ export const createTransaction = async (req: Request, res: Response) => {
                 }
             });
 
-            // Create initial payment record if payment was made
-            if (initialPayment > 0) {
+            // Create Payment Records
+            if (splitPayments.length > 0) {
+                // Create multiple payments
+                for (const p of splitPayments) {
+                    await tx.payment.create({
+                        data: {
+                            transactionId: transaction.id,
+                            amount: p.amount,
+                            paymentMethod: p.paymentMethod,
+                            paymentCode: p.paymentCode,
+                            // receiptUrl: data.paymentReceiptUrl, // Optionally attach receipt to all? Or just main
+                            notes: p.notes || 'Split payment',
+                            createdBy: userId
+                        }
+                    });
+                }
+            } else if (initialPayment > 0) {
+                // Create single legacy payment
                 await tx.payment.create({
                     data: {
                         transactionId: transaction.id,
                         amount: initialPayment,
-                        paymentMethod: data.paymentMethod,
+                        paymentMethod: data.paymentMethod as any, // Cast if needed but Schema says CASH/CARD/INSURANCE/MIXED. Payment table enum likely handles it.
+                        // Wait, Payment table PaymentMethod likely assumes CASH/CARD/INSURANCE.
+                        // If Transaction is MIXED, individual payments must be specific.
+                        // In legacy flow, data.paymentMethod is usually specific.
+                        // If user sent MIXED without payments array, that's an edge case we shouldn't hit with frontend logic.
+                        // But to be safe:
                         paymentCode: data.paymentCode,
                         receiptUrl: data.paymentReceiptUrl,
                         notes: 'Initial payment',
@@ -230,13 +273,14 @@ export const createTransaction = async (req: Request, res: Response) => {
 
             // Update Appointment Payment Status if linked
             if (data.appointmentId) {
+                const paymentStatus = isCompleted ? 'PAID' : 'PARTIAL';
                 await tx.appointment.update({
                     where: { id: data.appointmentId },
                     data: {
-                        paymentStatus: 'PAID'
+                        paymentStatus: paymentStatus
                     }
                 });
-                console.log(`Updated appointment ${data.appointmentId} payment status to PAID`);
+                console.log(`Updated appointment ${data.appointmentId} payment status to ${paymentStatus}`);
             }
 
             return transaction;

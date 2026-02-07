@@ -690,6 +690,7 @@ enum PaymentMethod {
   CASH
   CARD
   INSURANCE
+  MIXED
 
   @@schema("inventa_clinical_app")
 }
