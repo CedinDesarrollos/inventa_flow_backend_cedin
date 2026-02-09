@@ -31,7 +31,6 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
             return res.status(401).json({ message: 'Invalid or expired token' });
         }
         req.user = user;
-        // console.log(`[AUTH] Authenticated user: ${user.userId} (${user.role})`);
         next();
     });
 };

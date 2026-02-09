@@ -39,6 +39,7 @@ import paymentRoutes from './routes/payment.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { initNpsCron } from './jobs/npsCron';
 import { notificationService } from './services/notifications/NotificationService';
+import notificationRoutes from './routes/notification.routes';
 
 // ... (existing imports)
 import rateLimit from 'express-rate-limit'; // Add this import
@@ -115,6 +116,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/notifications', notificationRoutes); // MOVED UP
 app.use('/api/branches', branchRoutes);
 app.use('/api/professionals', professionalRoutes);
 app.use('/api/insurances', insuranceRoutes);
@@ -144,13 +146,13 @@ app.use('/api', paymentRoutes);
 app.use('/api/medications', medicationRoutes);
 app.use('/api', costRoutes);
 import { initBirthdayCron } from './jobs/birthdayCron';
-import notificationRoutes from './routes/notification.routes';
+// import notificationRoutes from './routes/notification.routes'; // Moved to top
 import { initConversationCleanup } from './jobs/conversationCleanup';
 
 // ... (existing imports)
 
 app.use('/api', costRoutes);
-app.use('/api/notifications', notificationRoutes);
+// app.use('/api/notifications', notificationRoutes); // Moved up
 
 // Health Check
 app.get('/api/health', (req, res) => {
