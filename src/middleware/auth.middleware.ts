@@ -12,19 +12,26 @@ export interface AuthRequest extends Request {
 }
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
+    // Skip auth for OPTIONS (CORS preflight)
+    if (req.method === 'OPTIONS') {
+        return next();
+    }
+
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
     if (!token) {
+        console.warn(`[AUTH] Missing token for ${req.method} ${req.originalUrl}`);
         return res.status(401).json({ message: 'Authentication required' });
     }
 
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
         if (err) {
-            console.error('JWT Verification Error:', err.message);
+            console.error('[AUTH] JWT Verification Error:', err.message);
             return res.status(401).json({ message: 'Invalid or expired token' });
         }
         req.user = user;
+        // console.log(`[AUTH] Authenticated user: ${user.userId} (${user.role})`);
         next();
     });
 };
