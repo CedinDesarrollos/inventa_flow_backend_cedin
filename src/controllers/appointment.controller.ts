@@ -22,39 +22,64 @@ const updateStatusSchema = z.object({
     secretaryNote: z.string().optional()
 });
 
+const getAppointmentsQuerySchema = z.object({
+    start: z.string().datetime().optional(),
+    end: z.string().datetime().optional(),
+    doctorId: z.string().uuid().optional(),
+    patientId: z.string().uuid().optional(),
+    branchId: z.string().uuid().optional(),
+    status: z.string().optional(), // We'll parse the comma-separated string manually or with transform
+    paymentStatus: z.string().optional()
+});
+
 export const getAppointments = async (req: Request, res: Response) => {
     console.log('Controller: getAppointments called', req.query);
     try {
-        const { start, end, doctorId, patientId, status, branchId, paymentStatus } = req.query;
+        const queryParams = getAppointmentsQuerySchema.parse(req.query);
+        const { start, end, doctorId, patientId, status, branchId, paymentStatus } = queryParams;
 
         const where: any = {};
 
+        // Date Range Logic - CRITICAL for preventing OOM
+        // If start/end provided, use them.
+        // If NOT provided, default to current month to prevent fetching entire history
         if (start && end) {
             where.date = {
-                gte: new Date(String(start)),
-                lte: new Date(String(end))
+                gte: new Date(start),
+                lte: new Date(end)
+            };
+        } else {
+            // Default protection: Current Month
+            const now = new Date();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+            console.warn('Backend: No date range provided for getAppointments. Defaulting to current month to prevent crash.');
+
+            where.date = {
+                gte: startOfMonth,
+                lte: endOfMonth
             };
         }
 
-        if (doctorId) where.doctorId = String(doctorId);
-        if (patientId) where.patientId = String(patientId);
+        if (doctorId) where.doctorId = doctorId;
+        if (patientId) where.patientId = patientId;
 
         if (status) {
-            const statusStr = String(status);
-            if (statusStr.includes(',')) {
+            if (status.includes(',')) {
                 where.status = {
-                    in: statusStr.split(',').map(s => s.trim())
+                    in: status.split(',').map(s => s.trim())
                 };
             } else {
-                where.status = statusStr;
+                where.status = status;
             }
         }
 
         if (paymentStatus) {
-            where.paymentStatus = String(paymentStatus);
+            where.paymentStatus = paymentStatus;
         }
 
-        if (branchId) where.branchId = String(branchId);
+        if (branchId) where.branchId = branchId;
 
         console.log('Backend: Filtering appointments with where clause:', JSON.stringify(where, null, 2));
 
@@ -70,18 +95,19 @@ export const getAppointments = async (req: Request, res: Response) => {
                 branch: true,
                 service: true
             },
+            take: 2000, // Hard limit to prevent OOM even with date range if range is huge
             orderBy: {
                 date: 'asc'
             }
         });
 
-        // NOTE: We do NOT shift appointments here because the Agenda Component appears to Display UTC Face Value (12:00Z -> 12:00).
-        // The Availability Controller DOES shift (+3) because the DatePicker/Selector displays Local Time (12:00Z -> 09:00).
-        // This hybrid approach solves the "Mixed Frontend Behavior".
-
         console.log(`Backend: Found ${appointments.length} appointments`);
         res.json(appointments);
     } catch (error) {
+        if (error instanceof z.ZodError) {
+            console.error('Validation Error:', (error as any).errors);
+            return res.status(400).json({ error: 'Parámetros de consulta inválidos', details: (error as any).errors });
+        }
         console.error(error);
         res.status(500).json({ error: 'Error al obtener citas' });
     }
