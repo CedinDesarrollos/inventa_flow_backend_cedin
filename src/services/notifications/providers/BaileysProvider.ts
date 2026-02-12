@@ -50,6 +50,31 @@ export class BaileysProvider implements IWhatsAppProvider {
     }
 
     constructor() {
+        // Shield against Baileys Crypto Crashes
+        process.on('uncaughtException', async (err) => {
+            if (err.message.includes('Unsupported state or unable to authenticate data')) {
+                console.error('🚨 DETECTED WHATSAPP CRYPTO CRASH. Recovering...');
+                console.error(err);
+
+                try {
+                    // Force logout / wipe session
+                    await this.logout();
+
+                    // Restart service after delay
+                    setTimeout(() => {
+                        console.log('🔄 Restarting WhatsApp Service...');
+                        this.initialize();
+                    }, 5000);
+
+                } catch (recoveryError) {
+                    console.error('Failed to recover from crash:', recoveryError);
+                }
+            } else {
+                // Re-throw if it's not the specific error we can handle
+                console.error('Uncaught Exception:', err);
+                process.exit(1);
+            }
+        });
     }
 
     private saveLidMap() {
