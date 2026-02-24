@@ -14,6 +14,7 @@ model User {
   username              String?                @unique
   rut                   String?                @unique
   passwordHash          String                 @map("password_hash")
+  pinHash               String?                @map("pin_hash")
   fullName              String                 @map("full_name")
   role                  Role                   @default(PROFESSIONAL)
   createdAt             DateTime               @default(now()) @map("created_at")
@@ -21,6 +22,7 @@ model User {
   isActive              Boolean                @default(true) @map("is_active")
   phone                 String?
   mustChangePassword    Boolean                @default(false) @map("must_change_password")
+  mustChangePin         Boolean                @default(true) @map("must_change_pin")
   appointments          Appointment[]
   closes                CashClose[]            @relation("Closer")
   records               ClinicalRecord[]

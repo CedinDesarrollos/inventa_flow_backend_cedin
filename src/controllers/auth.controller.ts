@@ -231,3 +231,81 @@ export const changePassword = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+export const verifyPin = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user?.userId;
+        const { pin } = req.body;
+
+        if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+        if (!pin) return res.status(400).json({ message: 'Se requiere el PIN' });
+
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
+
+        if (!user.pinHash) {
+            // Default PIN is '000000'
+            if (pin === '000000') {
+                return res.json({ success: true, mustChangePin: true });
+            } else {
+                return res.status(400).json({ message: 'PIN incorrecto' });
+            }
+        }
+
+        const isValidPin = await bcrypt.compare(pin, user.pinHash);
+        if (!isValidPin) {
+            return res.status(400).json({ message: 'PIN incorrecto' });
+        }
+
+        res.json({ success: true, mustChangePin: user.mustChangePin });
+    } catch (error) {
+        console.error('Verify PIN Error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+const changePinSchema = z.object({
+    currentPin: z.string().length(6, 'El PIN debe tener exactamente 6 dígitos').regex(/^\d+$/, 'El PIN solo debe contener números'),
+    newPin: z.string().length(6, 'El PIN debe tener exactamente 6 dígitos').regex(/^\d+$/, 'El PIN solo debe contener números')
+});
+
+export const changePin = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user?.userId;
+        if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+        const { currentPin, newPin } = changePinSchema.parse(req.body);
+
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
+
+        if (!user.pinHash) {
+            if (currentPin !== '000000') {
+                return res.status(400).json({ message: 'PIN actual incorrecto' });
+            }
+        } else {
+            const isValidPin = await bcrypt.compare(currentPin, user.pinHash);
+            if (!isValidPin) {
+                return res.status(400).json({ message: 'PIN actual incorrecto' });
+            }
+        }
+
+        const hashedPin = await bcrypt.hash(newPin, 10);
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: {
+                pinHash: hashedPin,
+                mustChangePin: false
+            }
+        });
+
+        res.json({ message: 'PIN actualizado correctamente' });
+    } catch (error) {
+        console.error('Change PIN Error:', error);
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ errors: (error as any).errors });
+        }
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
