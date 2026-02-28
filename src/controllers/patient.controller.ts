@@ -73,19 +73,35 @@ export const getPatients = async (req: Request, res: Response) => {
                     include: { tag: true }
                 },
                 appointments: {
-                    where: { status: 'COMPLETED' },
+                    where: {
+                        status: { in: ['COMPLETED', 'SCHEDULED', 'CONFIRMED'] }
+                    },
                     orderBy: { date: 'desc' },
-                    take: 1,
-                    select: { date: true }
+                    take: 20,
+                    select: { date: true, status: true }
                 }
             }
         });
 
-        const mappedPatients = patients.map(p => ({
-            ...p,
-            lastVisit: p.appointments[0]?.date || null,
-            appointments: undefined // Remove from response to keep it clean if not needed, or keep it.
-        }));
+        const now = new Date();
+        const mappedPatients = patients.map(p => {
+            const completed = p.appointments.filter(a => a.status === 'COMPLETED' && new Date(a.date) <= now);
+            const future = p.appointments.filter(a => ['SCHEDULED', 'CONFIRMED'].includes(a.status) && new Date(a.date) >= now);
+
+            // As appointments are ordered desc, [0] is the most recent completed
+            const lastVisit = completed.length > 0 ? completed[0].date : null;
+
+            // To get the NEXT appointment (closest to now), sort ascending
+            future.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            const nextVisit = future.length > 0 ? future[0].date : null;
+
+            return {
+                ...p,
+                lastVisit,
+                nextAppointment: nextVisit,
+                appointments: undefined // Remove from response to keep it clean
+            };
+        });
 
         res.json(mappedPatients);
     } catch (error) {

@@ -215,6 +215,7 @@ model Appointment {
   paymentStatus      PaymentStatus         @default(PENDING) @map("payment_status")
   completedAt        DateTime?             @map("completed_at")
   startedAt          DateTime?             @map("started_at")
+  isOverbooking      Boolean               @default(false) @map("is_overbooking")
   reminders          AppointmentReminder[]
   branch             Branch?               @relation(fields: [branchId], references: [id])
   doctor             User?                 @relation(fields: [doctorId], references: [id])

@@ -13,7 +13,8 @@ const appointmentSchema = z.object({
     type: z.enum(['CONSULTATION', 'FOLLOW_UP', 'PROCEDURE']),
     status: z.enum(['SCHEDULED', 'CONFIRMED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
     reason: z.string().optional(),
-    notes: z.string().optional()
+    notes: z.string().optional(),
+    isOverbooking: z.boolean().optional().default(false)
 });
 
 // Validations
@@ -125,9 +126,10 @@ export const createAppointment = async (req: Request, res: Response) => {
 
         // Check availability (overlap) for the doctor
         // Skip overlap check for walk-in appointments (status CONFIRMED) since patient is already at clinic
-        console.log('Checking overlap - doctorId:', data.doctorId, 'status:', data.status);
+        // Also skip overlap if this is explicitly marked as an overbooking
+        console.log('Checking overlap - doctorId:', data.doctorId, 'status:', data.status, 'isOverbooking:', data.isOverbooking);
 
-        if (data.doctorId && (!data.status || data.status === 'SCHEDULED')) {
+        if (data.doctorId && !data.isOverbooking && (!data.status || data.status === 'SCHEDULED')) {
             console.log('Performing overlap check for doctor:', data.doctorId);
             const overlap = await prisma.appointment.findFirst({
                 where: {
@@ -147,7 +149,7 @@ export const createAppointment = async (req: Request, res: Response) => {
                 return res.status(409).json({ error: 'El profesional ya tiene una cita en ese horario.' });
             }
         } else {
-            console.log('Skipping overlap check - Walk-in appointment or no doctor assigned');
+            console.log('Skipping overlap check - Overbooking, Walk-in appointment, or no doctor assigned');
         }
 
         const appointment = await prisma.appointment.create({
