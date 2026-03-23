@@ -51,13 +51,27 @@ export const getPatients = async (req: Request, res: Response) => {
         }
 
         if (doctorId) {
-            andConditions.push({
-                OR: [
-                    { appointments: { some: { doctorId: String(doctorId) } } },
-                    { clinicalRecords: { some: { doctorId: String(doctorId) } } },
-                    { transactions: { some: { doctorId: String(doctorId) } } }
-                ]
-            });
+            const isExplicitSearch = search && String(search).trim().length >= 3;
+
+            // Si hay una búsqueda explícita, permitimos buscar en toda la base de datos
+            // para que los médicos puedan agendar a pacientes de otros o pacientes nuevos cruzados.
+            if (!isExplicitSearch) {
+                andConditions.push({
+                    OR: [
+                        { appointments: { some: { doctorId: String(doctorId) } } },
+                        { clinicalRecords: { some: { doctorId: String(doctorId) } } },
+                        { transactions: { some: { doctorId: String(doctorId) } } },
+                        // Permitir ver pacientes recién creados (sin historial en toda la clínica)
+                        {
+                            AND: [
+                                { appointments: { none: {} } },
+                                { clinicalRecords: { none: {} } },
+                                { transactions: { none: {} } }
+                            ]
+                        }
+                    ]
+                });
+            }
         }
 
         if (andConditions.length > 0) {
