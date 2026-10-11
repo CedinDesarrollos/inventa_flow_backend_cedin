@@ -5,6 +5,7 @@ import makeWASocket, {
     ConnectionState,
     proto,
     Contact,
+    BaileysEventMap,
     downloadMediaMessage
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
@@ -21,7 +22,68 @@ export class BaileysProvider implements IWhatsAppProvider {
     private lidMapPath = path.join(process.env.UPLOAD_DIR || path.resolve('public/uploads'), 'baileys_lid_map.json');
     private qrCode: string | null = null;
     private status: 'connected' | 'connecting' | 'disconnected' | 'waiting_qr' = 'disconnected';
-    private msgRetryCounterCache = new NodeCache();
+    // Lazy TTL expiry avoids a cache interval retaining unused providers.
+    private msgRetryCounterCache = new NodeCache({ stdTTL: 600, checkperiod: 0 });
+    private enabled = false;
+    private generation = 0;
+    private connectionTask: Promise<void> | null = null;
+    private stopTask: Promise<void> | null = null;
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private reconnectAttempt = 0;
+    private socketCleanup: (() => void) | null = null;
+    private recoveryInstalled = false;
+
+    private readonly recoverCryptoCrash = (err: Error) => {
+        if (!err.message.includes('Unsupported state or unable to authenticate data')) {
+            console.error('Uncaught Exception:', err);
+            process.exit(1);
+        }
+        if (!this.enabled || this.reconnectTimer) return;
+        console.error('WhatsApp crypto error: reconnecting without deleting credentials', err);
+        this.retireSocket();
+        this.connectionTask = null;
+        this.msgRetryCounterCache.flushAll();
+        this.scheduleReconnect(5000);
+    };
+
+    private installRecoveryHandler() {
+        if (this.recoveryInstalled) return;
+        process.on('uncaughtException', this.recoverCryptoCrash);
+        this.recoveryInstalled = true;
+    }
+
+    private cancelReconnect() {
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+    }
+
+    private retireSocket(): WASocket | null {
+        const socket = this.sock;
+        this.sock = null;
+        this.generation++;
+        this.socketCleanup?.();
+        this.socketCleanup = null;
+        this.status = 'disconnected';
+        this.qrCode = null;
+        if (socket) {
+            try { socket.end(undefined); }
+            catch (err) { console.error('Error closing WhatsApp socket:', err); }
+        }
+        return socket;
+    }
+
+    private scheduleReconnect(minimumDelay = 2000) {
+        if (!this.enabled || this.reconnectTimer) return;
+        const delay = Math.max(minimumDelay, Math.min(60000, 2000 * 2 ** Math.min(this.reconnectAttempt++, 5)));
+        const generation = this.generation;
+        console.log(`WhatsApp reconnect scheduled in ${delay}ms`);
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            if (!this.enabled || this.generation !== generation) return;
+            void this.connectToWhatsApp().catch(err => console.error('WhatsApp reconnect failed:', err));
+        }, delay);
+        this.reconnectTimer.unref();
+    }
 
     /**
      * Resolve LID to Phone Number using the internal Map
@@ -49,34 +111,6 @@ export class BaileysProvider implements IWhatsAppProvider {
         this.messageHandler = handler;
     }
 
-    constructor() {
-        // Shield against Baileys Crypto Crashes
-        process.on('uncaughtException', async (err) => {
-            if (err.message.includes('Unsupported state or unable to authenticate data')) {
-                console.error('🚨 DETECTED WHATSAPP CRYPTO CRASH. Recovering...');
-                console.error(err);
-
-                try {
-                    // Force logout / wipe session
-                    await this.logout();
-
-                    // Restart service after delay
-                    setTimeout(() => {
-                        console.log('🔄 Restarting WhatsApp Service...');
-                        this.initialize();
-                    }, 5000);
-
-                } catch (recoveryError) {
-                    console.error('Failed to recover from crash:', recoveryError);
-                }
-            } else {
-                // Re-throw if it's not the specific error we can handle
-                console.error('Uncaught Exception:', err);
-                process.exit(1);
-            }
-        });
-    }
-
     private saveLidMap() {
         try {
             const obj = Object.fromEntries(this.lidToPhone);
@@ -97,25 +131,41 @@ export class BaileysProvider implements IWhatsAppProvider {
     }
 
     async initialize(): Promise<void> {
+        if (this.stopTask) await this.stopTask;
+        this.enabled = true;
+        this.installRecoveryHandler();
+        if (this.sock || this.connectionTask) {
+            await this.connectionTask;
+            return;
+        }
+        // Explicit reconnect can resume immediately; repeated clicks share the same task.
+        this.cancelReconnect();
+        this.reconnectAttempt = 0;
         await this.connectToWhatsApp();
     }
 
-    private async connectToWhatsApp() {
-        // 1. Cleanup "zombie" socket if exists
-        if (this.sock) {
-            try {
-                this.sock.end(undefined);
-                this.sock = null;
-            } catch (e) {
-                console.error('Error cleaning up existing socket:', e);
-            }
-        }
-
+    private connectToWhatsApp(): Promise<void> {
+        if (!this.enabled || this.sock) return Promise.resolve();
+        if (this.connectionTask) return this.connectionTask;
+        const generation = ++this.generation;
         this.status = 'connecting';
-        // Use DB Auth
-        const { state, saveCreds } = await usePrismaAuthState();
+        const task = this.openSocket(generation).catch(err => {
+            if (this.enabled && this.generation === generation) {
+                this.retireSocket();
+                this.scheduleReconnect();
+            }
+            throw err;
+        }).finally(() => {
+            if (this.connectionTask === task) this.connectionTask = null;
+        });
+        this.connectionTask = task;
+        return task;
+    }
 
-        this.sock = makeWASocket({
+    private async openSocket(generation: number) {
+        const { state, saveCreds } = await usePrismaAuthState();
+        if (!this.enabled || this.generation !== generation) return;
+        const sock = makeWASocket({
             auth: state,
             printQRInTerminal: true,
             browser: ['InventaFlow', 'Chrome', '1.0.0'],
@@ -131,57 +181,50 @@ export class BaileysProvider implements IWhatsAppProvider {
             shouldIgnoreJid: (jid) => jid === 'status@broadcast' || jid.includes('status@broadcast'), // Ignore Status Updates to prevent backlog/decrypt errors
         });
 
-        // Listen for credentials update
-        this.sock.ev.on('creds.update', saveCreds);
+        this.sock = sock;
+        const isCurrent = () => this.enabled && this.generation === generation && this.sock === sock;
+        const cleanups: (() => void)[] = [];
+        const on = <K extends keyof BaileysEventMap>(event: K, handler: (value: BaileysEventMap[K]) => void) => {
+            const guarded = (value: BaileysEventMap[K]) => {
+                if (isCurrent()) handler(value);
+            };
+            sock.ev.on(event, guarded);
+            cleanups.push(() => sock.ev.off(event, guarded));
+        };
+        this.socketCleanup = () => cleanups.forEach(cleanup => cleanup());
 
-        // Connection update
-        this.sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
+        on('creds.update', () => {
+            void saveCreds().catch(err => console.error('Error saving WhatsApp credentials:', err));
+        });
+
+        on('connection.update', (update: Partial<ConnectionState>) => {
             const { connection, lastDisconnect, qr } = update;
-
             if (qr) {
                 this.status = 'waiting_qr';
                 this.qrCode = qr;
                 console.log('Scannable QR Code generated');
             }
-
             if (connection === 'close') {
                 const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
-
-                // Codes that should trigger immediate internal reconnect
-                const shouldReconnect =
-                    reason !== DisconnectReason.loggedOut &&
-                    reason !== 401; // Unauthorized
-
-                console.log(`🔌 Connection closed. Reason: ${reason}. Reconnecting: ${shouldReconnect}`);
-
-                if (shouldReconnect) {
-                    this.status = 'disconnected';
-                    this.qrCode = null;
-
-                    // Different backoff strategies
-                    // 515 = Restart Required (Common, immediate retry)
-                    // 408 = Timed Out (Common, immediate retry)
-                    const delay = (reason === DisconnectReason.restartRequired || reason === DisconnectReason.timedOut)
-                        ? 0
-                        : 2000; // 2s delay for others
-
-                    console.log(`🔄 Reconnecting in ${delay}ms...`);
-                    setTimeout(() => this.connectToWhatsApp(), delay);
+                console.log(`WhatsApp connection closed. Reason: ${reason}`);
+                if (reason === DisconnectReason.loggedOut || reason === 401) {
+                    // Only a genuine logout or an explicit user action clears credentials.
+                    void this.logout().catch(err => console.error('WhatsApp logout failed:', err));
                 } else {
-                    console.log('❌ Connection closed permanently. You are logged out or banned.');
-                    this.status = 'disconnected';
-                    this.qrCode = null;
-                    await this.logout();
+                    this.retireSocket();
+                    this.scheduleReconnect();
                 }
             } else if (connection === 'open') {
                 this.status = 'connected';
                 this.qrCode = null;
+                this.reconnectAttempt = 0;
+                this.cancelReconnect();
                 console.log('Opened connection to WhatsApp!');
             }
         });
 
         // Listen for contacts to build LID map
-        this.sock.ev.on('contacts.upsert', (contacts: Contact[]) => {
+        on('contacts.upsert', (contacts: Contact[]) => {
             let changed = false;
             for (const contact of contacts) {
                 if (contact.lid && contact.id) { // contact.id is usually the phone number JID
@@ -192,7 +235,7 @@ export class BaileysProvider implements IWhatsAppProvider {
             if (changed) this.saveLidMap();
         });
 
-        this.sock.ev.on('contacts.update', (updates: Partial<Contact>[]) => {
+        on('contacts.update', (updates: Partial<Contact>[]) => {
             let changed = false;
             for (const update of updates) {
                 if (update.lid && update.id) {
@@ -204,7 +247,7 @@ export class BaileysProvider implements IWhatsAppProvider {
         });
 
         // Listen for incoming messages
-        this.sock.ev.on('messages.upsert', async (m) => {
+        on('messages.upsert', async (m) => {
             console.log('📬 BaileysProvider: Raw messages.upsert received', JSON.stringify({ type: m.type, count: m.messages?.length, firstMsgKey: m.messages?.[0]?.key }));
             if (this.messageHandler) {
                 try {
@@ -219,19 +262,17 @@ export class BaileysProvider implements IWhatsAppProvider {
         });
 
         // Listen for message status updates (e.g. READ receipts from phone)
-        this.sock.ev.on('messages.update', async (updates) => {
+        on('messages.update', async (updates) => {
             console.log('📬 BaileysProvider: messages.update', updates.length);
-            if (this.messageUpdateHandler) {
-                await this.messageUpdateHandler(updates);
-            }
+            try { await this.messageUpdateHandler?.(updates); }
+            catch (err) { console.error('Error handling WhatsApp message updates:', err); }
         });
 
         // Listen for chat updates (e.g. Unread count cleared on phone)
-        this.sock.ev.on('chats.update', async (updates) => {
+        on('chats.update', async (updates) => {
             console.log('📬 BaileysProvider: chats.update', updates.length);
-            if (this.chatUpdateHandler) {
-                await this.chatUpdateHandler(updates);
-            }
+            try { await this.chatUpdateHandler?.(updates); }
+            catch (err) { console.error('Error handling WhatsApp chat updates:', err); }
         });
     }
 
@@ -341,37 +382,53 @@ export class BaileysProvider implements IWhatsAppProvider {
         };
     }
 
-    async disconnect(): Promise<void> {
-        try {
-            await this.sock?.end(undefined);
-            this.status = 'disconnected';
-        } catch (err) {
-            console.error('Error disconnecting', err);
+    private stop(logout: boolean): Promise<void> {
+        if (this.stopTask) return this.stopTask;
+        this.enabled = false;
+        this.cancelReconnect();
+        this.connectionTask = null;
+        if (this.recoveryInstalled) {
+            process.removeListener('uncaughtException', this.recoverCryptoCrash);
+            this.recoveryInstalled = false;
         }
+        // Detach our callbacks before logout/end can emit more connection events.
+        const socket = this.sock;
+        this.sock = null;
+        this.generation++;
+        this.socketCleanup?.();
+        this.socketCleanup = null;
+        this.status = 'disconnected';
+        this.qrCode = null;
+        this.reconnectAttempt = 0;
+        this.msgRetryCounterCache.flushAll();
+        const task = (async () => {
+            try {
+                if (logout && socket) {
+                    try { await socket.logout(); }
+                    catch (err) { console.error('Socket logout failed:', err); }
+                }
+            } finally {
+                try { socket?.end(undefined); }
+                catch (err) { console.error('Error closing WhatsApp socket:', err); }
+            }
+            if (logout) {
+                const { prisma } = await import('../../../lib/prisma');
+                await prisma.baileysSession.deleteMany({});
+                console.log('WhatsApp logged out; credentials cleared.');
+            }
+        })().finally(() => {
+            if (this.stopTask === task) this.stopTask = null;
+        });
+        this.stopTask = task;
+        return task;
+    }
+
+    async disconnect(): Promise<void> {
+        await this.stop(false);
     }
 
     async logout(): Promise<void> {
-        try {
-            if (this.sock) {
-                try {
-                    await this.sock.logout();
-                } catch (e) { console.error('Socket logout failed, continuing to DB wipe', e) }
-
-                this.sock.end(undefined);
-                this.sock = null;
-            }
-            this.status = 'disconnected';
-            this.qrCode = null;
-
-            // Clear DB Session
-            console.log('Logging out: Wiping DB Credentials...');
-            const { prisma } = require('../../../lib/prisma');
-            await prisma.baileysSession.deleteMany({}); // Wipe all sessions on logout
-            console.log('DB Credentials wiped.');
-
-        } catch (err) {
-            console.error('Error during logout process', err);
-        }
+        await this.stop(true);
     }
 
     async downloadMedia(message: any): Promise<Buffer | null> {

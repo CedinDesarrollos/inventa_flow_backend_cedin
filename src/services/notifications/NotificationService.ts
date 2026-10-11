@@ -139,6 +139,14 @@ export class NotificationService {
         this.baileysProvider.initialize().catch(err => console.error('Failed to init Baileys', err));
     }
 
+    async initializeBaileys() {
+        await this.baileysProvider.initialize();
+    }
+
+    async disconnectBaileys() {
+        await this.baileysProvider.disconnect();
+    }
+
     /**
      * Send a message to a patient via WhatsApp
      * Uses hybrid strategy: Manual (userId present) -> Baileys, Automation -> Twilio

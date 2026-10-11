@@ -23,8 +23,8 @@ export const logout = async (req: Request, res: Response) => {
 
 export const reconnect = async (req: Request, res: Response) => {
     try {
-        // Just calling initialize again should trigger reconnect logic if disconnected
-        await notificationService.initialize();
+        // Manual connection does not require Twilio credentials.
+        await notificationService.initializeBaileys();
         res.json({ success: true, message: 'Reconnection initiated' });
     } catch (error) {
         console.error('Error reconnecting:', error);
