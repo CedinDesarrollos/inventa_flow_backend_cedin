@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { DateTime } from 'luxon';
 import { prisma } from '../lib/prisma';
 import { MediaDownloadService } from '../services/media/MediaDownloadService';
-import { NotificationService } from '../services/notifications/NotificationService';
+import { notificationService } from '../services/notifications/NotificationService';
 import { NpsService } from '../services/nps/NpsService';
 
 /**
@@ -202,9 +202,6 @@ import { createNotification } from './notification.controller';
 // ...
 
 async function handleQuickReplyResponse(conversation: any, patient: any, payload: string) {
-    const notificationService = new NotificationService();
-    await notificationService.initialize();
-
     switch (payload) {
         case 'confirm_yes':
             // Confirm appointment

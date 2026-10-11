@@ -190,6 +190,7 @@ app.listen(port, () => {
 });
 
 process.on('SIGTERM', async () => {
+    await notificationService.disconnectBaileys();
     await prisma.$disconnect();
     process.exit(0);
 });

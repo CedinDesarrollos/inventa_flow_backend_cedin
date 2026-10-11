@@ -6,6 +6,7 @@ export class TwilioProvider implements IWhatsAppProvider {
     private client: any;
 
     async initialize() {
+        if (this.client) return;
         const accountSid = process.env.TWILIO_ACCOUNT_SID;
         const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -55,6 +56,7 @@ export class TwilioProvider implements IWhatsAppProvider {
         }
 
         try {
+            await this.initialize();
             console.log('🚀 Sending to Twilio:', JSON.stringify(messageData, null, 2));
             const result = await this.client.messages.create(messageData);
             console.log(`✅ Message sent via Twilio: ${result.sid}`);
