@@ -21,7 +21,7 @@ async function seed() {
     await prisma.patient.upsert({where: {identifier: 'STAGING-PATIENT'}, create: {identifier: 'STAGING-PATIENT', firstName: 'Paciente', lastName: 'Sintético', branchId: branch.id, birthDate: new Date('2000-01-01'), gender: 'M'}, update: {}});
     for (const key of ['reminders_enabled','birthday_enabled','nps_enabled']) await prisma.systemSetting.upsert({where: {key}, create: {key, value: false}, update: {value: false}});
     const [{ssl}] = await prisma.$queryRawUnsafe('SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()');
-    const [{version}] = await prisma.$queryRawUnsafe('SHOW server_version');
+    const [{server_version: version}] = await prisma.$queryRawUnsafe('SHOW server_version');
     if (!ssl) throw new Error('Staging database connection must use TLS');
     if (!version.startsWith('16.')) throw new Error('Staging requires PostgreSQL 16');
     console.log('Synthetic staging data ready; PostgreSQL 16 connection uses TLS.');
