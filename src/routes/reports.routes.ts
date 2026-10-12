@@ -1,7 +1,10 @@
+import { authenticateToken } from '../middleware/auth.middleware';
 import { Router } from 'express';
 import { getDashboardKpis, getNpsStats, getReminderStats, getReminderDetails } from '../controllers/reports.controller';
 
 const router = Router();
+
+router.use(authenticateToken);
 
 router.get('/kpis', getDashboardKpis);
 router.get('/nps', getNpsStats);

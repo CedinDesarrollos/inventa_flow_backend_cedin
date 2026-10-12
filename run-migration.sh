@@ -6,7 +6,7 @@
 echo "🚀 Ejecutando migración de base de datos en Railway..."
 
 # Ejecutar el script SQL
-railway run --service postgres psql -f prisma/migrations/manual_add_appointment_reminders.sql
+railway run --service postgres psql -f prisma/manual-migrations/manual_add_appointment_reminders.sql
 
 echo "✅ Migración completada!"
 echo ""

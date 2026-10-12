@@ -15,7 +15,7 @@ async function runMigration() {
 
     try {
         // Read the SQL file
-        const sqlPath = join(__dirname, '../prisma/migrations/manual_add_appointment_reminders.sql');
+        const sqlPath = join(__dirname, '../prisma/manual-migrations/manual_add_appointment_reminders.sql');
         const sql = readFileSync(sqlPath, 'utf-8');
 
         console.log('📝 Executing SQL migration...\n');

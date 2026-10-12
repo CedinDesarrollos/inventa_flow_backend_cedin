@@ -1,14 +1,18 @@
+import { authenticateToken, requireRole } from '../middleware/auth.middleware';
+import { restrictAppointmentAccess } from '../middleware/appointment-access.middleware';
 import { Router } from 'express';
 import { getAppointments, createAppointment, updateAppointment, updateAppointmentStatus, deleteAppointment, closeDailyAgenda } from '../controllers/appointment.controller';
 
 const router = Router();
 
-router.get('/', getAppointments);
-router.post('/', createAppointment);
-router.put('/:id', updateAppointment);
-router.patch('/:id/status', updateAppointmentStatus);
-router.delete('/:id', deleteAppointment);
+router.use(authenticateToken, requireRole(['ADMIN', 'DEVELOPER', 'SECRETARY', 'PROFESSIONAL']));
 
-router.post('/close-agenda', closeDailyAgenda);
+router.get('/', restrictAppointmentAccess, getAppointments);
+router.post('/', restrictAppointmentAccess, createAppointment);
+router.put('/:id', restrictAppointmentAccess, updateAppointment);
+router.patch('/:id/status', restrictAppointmentAccess, updateAppointmentStatus);
+router.delete('/:id', restrictAppointmentAccess, deleteAppointment);
+
+router.post('/close-agenda', restrictAppointmentAccess, closeDailyAgenda);
 
 export default router;

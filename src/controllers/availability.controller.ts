@@ -1,16 +1,17 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
+import { appointmentEnd } from '../services/appointments/AppointmentService';
 
 const availabilityQuerySchema = z.object({
     date: z.string().datetime(),
-    duration: z.string().transform(Number) // Duration in minutes
+    duration: z.string().transform(Number).pipe(z.number().int().min(5)) // Duration in minutes
 });
 
 const slotsQuerySchema = z.object({
     date: z.string().datetime(),
     professionalId: z.string(),
-    duration: z.string().transform(Number),
+    duration: z.string().transform(Number).pipe(z.number().int().min(5)),
     branchId: z.string().optional()
 });
 
@@ -27,20 +28,11 @@ export const getAvailableProfessionals = async (req: Request, res: Response) => 
         });
 
         // 2. Find professionals with overlapping appointments
-        const busyProfessionals = await prisma.appointment.findMany({
-            where: {
-                status: { not: 'CANCELLED' },
-                OR: [
-                    {
-                        date: { lt: end },
-                        endDate: { gt: start }
-                    }
-                ]
-            },
-            select: {
-                doctorId: true
-            }
-        });
+        const busyProfessionals = await prisma.$queryRaw<{ doctorId: string | null }[]>`
+            SELECT DISTINCT doctor_id AS "doctorId" FROM inventa_clinical_app.appointments
+            WHERE status <> 'CANCELLED' AND date < ${end}
+              AND date + duration * interval '1 minute' > ${start}
+        `;
 
         const busyDoctorIds = new Set(busyProfessionals.map(a => a.doctorId).filter(Boolean));
 
@@ -73,8 +65,6 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
         // Face Value UTC: Treat the requested input date as UTC
         const dayStart = new Date(date);
         dayStart.setUTCHours(0, 0, 0, 0);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setUTCHours(23, 59, 59, 999);
 
         // 1. Get Professional Schedule for this day of week (0=Sunday)
         const dayOfWeek = dayStart.getUTCDay();
@@ -120,19 +110,13 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
         scheduleEnd.setUTCHours(workEndHour, 0, 0, 0);
 
         // 2. Get existing appointments for this professional on this day
-        const appointments = await prisma.appointment.findMany({
-            where: {
-                doctorId: userId,
-                status: { not: 'CANCELLED' },
-                date: {
-                    gte: dayStart,
-                    lte: dayEnd
-                }
-            },
-            orderBy: {
-                date: 'asc'
-            }
-        });
+        const appointments = await prisma.$queryRaw<{ date: Date; duration: number }[]>`
+            SELECT date, duration FROM inventa_clinical_app.appointments
+            WHERE doctor_id = ${userId} AND status <> 'CANCELLED'
+              AND date < ${scheduleEnd}
+              AND date + duration * interval '1 minute' > ${scheduleStart}
+            ORDER BY date ASC
+        `;
 
         // 3. Calculate Slots (Grid Search Strategy)
         const SLOT_STEP = 10; // Minutes
@@ -144,7 +128,7 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
 
             const collision = appointments.find(appt => {
                 const apptStart = new Date(appt.date);
-                const apptEnd = appt.endDate ? new Date(appt.endDate) : new Date(apptStart.getTime() + appt.duration * 60000);
+                const apptEnd = appointmentEnd(apptStart, appt.duration);
 
                 return cursor < apptEnd && slotEnd > apptStart;
             });

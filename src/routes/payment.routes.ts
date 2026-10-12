@@ -4,7 +4,8 @@ import * as paymentController from '../controllers/payment.controller';
 
 const router = Router();
 
-router.use(authenticateToken);
+// Scope middleware to payment paths, not every route mounted under /api.
+router.use(['/transactions/:id/payments', '/payments'], authenticateToken);
 
 // Payment routes
 router.post(

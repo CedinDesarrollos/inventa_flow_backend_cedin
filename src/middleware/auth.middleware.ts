@@ -30,6 +30,9 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
             console.error('[AUTH] JWT Verification Error:', err.message);
             return res.status(401).json({ message: 'Invalid or expired token' });
         }
+        if (!user || typeof user !== 'object' || typeof user.userId !== 'string' || !user.userId || typeof user.role !== 'string') {
+            return res.status(401).json({ message: 'Invalid token payload' });
+        }
         req.user = user;
         next();
     });

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateToken } from '../middleware/auth.middleware';
+import { authenticateToken, requireRole } from '../middleware/auth.middleware';
 import {
     getUsers,
     createUser,
@@ -11,9 +11,9 @@ import {
 const router = Router();
 
 router.get('/', authenticateToken, getUsers);
-router.post('/', authenticateToken, createUser);
-router.put('/:id', authenticateToken, updateUser);
-router.delete('/:id', authenticateToken, deleteUser);
-router.post('/:id/reset-password', authenticateToken, resetPassword);
+router.post('/', authenticateToken, requireRole(['ADMIN', 'DEVELOPER']), createUser);
+router.put('/:id', authenticateToken, requireRole(['ADMIN', 'DEVELOPER']), updateUser);
+router.delete('/:id', authenticateToken, requireRole(['ADMIN', 'DEVELOPER']), deleteUser);
+router.post('/:id/reset-password', authenticateToken, requireRole(['ADMIN', 'DEVELOPER']), resetPassword);
 
 export default router;

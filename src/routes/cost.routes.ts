@@ -5,8 +5,8 @@ import * as costController from '../controllers/cost.controller';
 const router = Router();
 
 // All routes require authentication and ADMIN/DEVELOPER role
-router.use(authenticateToken);
-router.use(requireRole(['ADMIN', 'DEVELOPER']));
+router.use(['/cost-categories', '/costs'], authenticateToken);
+router.use(['/cost-categories', '/costs'], requireRole(['ADMIN', 'DEVELOPER']));
 
 // ========== COST CATEGORIES ==========
 router.get('/cost-categories', costController.getCategories);
