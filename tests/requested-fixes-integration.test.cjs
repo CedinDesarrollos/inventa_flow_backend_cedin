@@ -90,6 +90,20 @@ test('requested fixes: history paging, whole-day agenda, recurring period, revok
   assert.equal((await request('/costs/overview?startMonth=2025-01&endMonth=2026-10',{token:oldToken})).status,403);
   assert.equal((await request('/costs/overview?startMonth=2025-01&endMonth=2026-10')).status,401);
   console.log('PASS: expense overview excludes definitions, respects period and includes linked inventory and last-day payments');
+  const scopedBody={categoryId:category.id,description:'Synthetic scoped expense',amount:37,date:'2026-10-15T00:00:00.000Z',branchId:branch.id};
+  const scoped=await json(await request('/costs',{method:'POST',token:auth,body:scopedBody}),201);
+  await json(await request('/costs',{method:'POST',token:auth,body:{...scopedBody,amount:63,branchId:secondBranch.id}}),201);
+  const scopeQuery=`/costs/overview?startMonth=2025-01&endMonth=2026-10&branchId=${branch.id}`;
+  const withLegacy=await json(await request(scopeQuery,{token:auth}));
+  assert.equal(withLegacy.summary.total,262);assert.equal(withLegacy.summary.unassignedCount,3);assert.equal(withLegacy.summary.unassignedTotal,225);
+  const strict=await json(await request(scopeQuery+'&includeUnassigned=false',{token:auth}));
+  assert.equal(strict.summary.total,37);assert.equal(strict.summary.count,1);assert.equal(strict.summary.unassignedCount,0);
+  assert.equal(strict.payments[0].branch.name,branch.name);
+  await json(await request('/costs/'+scoped.id,{method:'PUT',token:auth,body:{...scopedBody,branchId:null}}));
+  assert.equal((await prisma.cost.findUnique({where:{id:scoped.id}})).branchId,null);
+  assert.equal((await json(await request(scopeQuery+'&includeUnassigned=false',{token:auth}))).summary.total,0);
+  console.log('PASS: legacy unassigned expenses visible explicitly, other branches excluded, strict scope and branch editing work');
+
 
   await json(await request(`/users/${professional.id}`,{method:'PUT',token:auth,body:{isActive:false}}));
   assert.equal((await request('/auth/login',{method:'POST',body:{identifier:'four.doctor',password}})).status,401);

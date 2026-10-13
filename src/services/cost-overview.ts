@@ -80,7 +80,7 @@ export function expenseOverview(costs: OverviewCost[], filters: OverviewFilters)
     return {
         comparison, categories: [...distribution.values()].map(item => ({ ...item, amount: item.amount / 100 })).sort((a,b) => b.amount - a.amount),
         concepts: [...conceptTotals.values()].map(item => ({ id: item.id, name: item.name, category: [...item.categoryNames].join(' / '), origin: item.origin, amount: item.amount / 100, count: item.count })).sort((a,b) => b.amount - a.amount),
-        summary: { total: total(base), count: base.length, lastMonth: last, previousMonth: previous, changePercent: previous ? (last - previous) / previous * 100 : null },
+        summary: { total: total(base), count: base.length, unassignedCount: base.filter(row => !row.branchId).length, unassignedTotal: total(base.filter(row => !row.branchId)), lastMonth: last, previousMonth: previous, changePercent: previous ? (last - previous) / previous * 100 : null },
         payments: detail.slice((page - 1) * filters.pageSize, page * filters.pageSize),
         pagination: { page, pageSize: filters.pageSize, total: detail.length, totalPages },
         detailTotal: total(detail), options: { categories, concepts }

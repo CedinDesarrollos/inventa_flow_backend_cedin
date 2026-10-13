@@ -19,7 +19,7 @@ const costSchema = z.object({
     date: z.string().datetime(),
     isRecurring: z.boolean().optional().default(false),
     recurrenceRule: z.enum(['MONTHLY', 'QUARTERLY', 'YEARLY']).optional(),
-    branchId: z.string().uuid().optional(),
+    branchId: z.string().uuid().nullable().optional(),
     receiptUrl: z.string().url().optional().or(z.literal('')),
     notes: z.string().optional(),
     items: z.array(z.object({
@@ -126,12 +126,12 @@ export const getExpenseOverview = async (req: Request, res: Response) => {
         const filters = z.object({
             startMonth: month, endMonth: month, basis: z.enum(['payment', 'period']).default('payment'),
             categoryId: z.string().uuid().optional(), conceptId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-            branchId: z.string().uuid().optional(), origin: origin.optional(), search: z.string().max(200).optional(),
+            branchId: z.string().uuid().optional(), includeUnassigned: z.enum(['true', 'false']).default('true'), origin: origin.optional(), search: z.string().max(200).optional(),
             month: month.optional(), detailOrigin: origin.optional(),
             page: z.coerce.number().int().min(1).max(1000000).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(25)
         }).parse(req.query);
         const costs = await prisma.cost.findMany({
-            where: { isRecurring: false, ...(filters.branchId ? { branchId: filters.branchId } : {}) },
+            where: { isRecurring: false, ...(filters.branchId ? (filters.includeUnassigned === 'true' ? { OR: [{ branchId: filters.branchId }, { branchId: null }] } : { branchId: filters.branchId }) : {}) },
             include: { category: true, branch: { select: { name: true } }, parent: { select: { description: true } }, inventoryMovements: { select: { id: true } } }
         });
         res.json(expenseOverview(costs, filters));
