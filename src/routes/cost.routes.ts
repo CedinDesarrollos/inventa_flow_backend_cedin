@@ -16,6 +16,7 @@ router.delete('/cost-categories/:id', costController.deleteCategory);
 
 // ========== COSTS ==========
 router.get('/costs', costController.getCosts);
+router.get('/costs/overview', costController.getExpenseOverview);
 router.post('/costs', costController.createCost);
 router.put('/costs/:id', costController.updateCost);
 router.delete('/costs/:id', costController.deleteCost);

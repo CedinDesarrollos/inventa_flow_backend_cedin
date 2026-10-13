@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.middleware';
+import { expenseOverview, expensePaymentDay } from '../services/cost-overview';
 
 // ========== VALIDATION SCHEMAS ==========
 
@@ -93,39 +94,58 @@ export const deleteCategory = async (req: Request, res: Response) => {
 
 export const getCosts = async (req: Request, res: Response) => {
     try {
-        const { startDate, endDate, categoryId, branchId } = req.query;
-        const where: any = {};
-
-        if (startDate && endDate) {
-            where.date = {
-                gte: new Date(startDate as string),
-                lte: new Date(endDate as string)
-            };
-        }
-
-        if (categoryId) where.categoryId = categoryId as string;
-        if (branchId) where.branchId = branchId as string;
-
+        const query = z.object({
+            startDate: z.string().optional(), endDate: z.string().optional(),
+            categoryId: z.string().uuid().optional(), branchId: z.string().uuid().optional(),
+            isRecurring: z.enum(['true', 'false']).default('false')
+        }).parse(req.query);
         const costs = await prisma.cost.findMany({
-            where,
-            include: {
-                category: true,
-                branch: true
-            },
-            orderBy: { date: 'desc' }
+            where: { isRecurring: query.isRecurring === 'true', ...(query.categoryId ? { categoryId: query.categoryId } : {}), ...(query.branchId ? { branchId: query.branchId } : {}) },
+            include: { category: true, branch: true }, orderBy: { date: 'desc' }
         });
-
-        res.json(costs);
+        const dayLabel = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) || /T00:00:00(?:\.000)?Z$/.test(value);
+        for (const value of [query.startDate, query.endDate]) if (value && !Number.isFinite(new Date(value).getTime())) return res.status(400).json({ message: 'Fecha inválida' });
+        const filtered = costs.filter(cost => {
+            const day = expensePaymentDay(cost.date);
+            const afterStart = !query.startDate || (dayLabel(query.startDate) ? day >= query.startDate.slice(0,10) : cost.date >= new Date(query.startDate));
+            const beforeEnd = !query.endDate || (dayLabel(query.endDate) ? day <= query.endDate.slice(0,10) : cost.date <= new Date(query.endDate));
+            return afterStart && beforeEnd;
+        });
+        res.json(filtered);
     } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ message: 'Filtros inválidos' });
         console.error('Get Costs Error:', error);
         res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getExpenseOverview = async (req: Request, res: Response) => {
+    try {
+        const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).refine(value => Number(value.slice(0,4)) >= 1900);
+        const origin = z.enum(['individual', 'recurring', 'inventory']);
+        const filters = z.object({
+            startMonth: month, endMonth: month, basis: z.enum(['payment', 'period']).default('payment'),
+            categoryId: z.string().uuid().optional(), conceptId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+            branchId: z.string().uuid().optional(), origin: origin.optional(), search: z.string().max(200).optional(),
+            month: month.optional(), detailOrigin: origin.optional(),
+            page: z.coerce.number().int().min(1).max(1000000).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(25)
+        }).parse(req.query);
+        const costs = await prisma.cost.findMany({
+            where: { isRecurring: false, ...(filters.branchId ? { branchId: filters.branchId } : {}) },
+            include: { category: true, branch: { select: { name: true } }, parent: { select: { description: true } }, inventoryMovements: { select: { id: true } } }
+        });
+        res.json(expenseOverview(costs, filters));
+    } catch (error) {
+        if (error instanceof z.ZodError || error instanceof RangeError) return res.status(400).json({ message: error instanceof RangeError ? error.message : 'Filtros de comparativo inválidos' });
+        console.error('Expense overview failed:', error);
+        res.status(500).json({ message: 'No se pudo cargar el comparativo de gastos' });
     }
 };
 
 export const createCost = async (req: Request, res: Response) => {
     try {
         const data = costSchema.parse(req.body);
-        const userId = (req as any).user?.id;
+        const userId = (req as AuthRequest).user?.userId;
         const { items, ...costData } = data;
 
         const result = await prisma.$transaction(async (tx) => {
@@ -225,7 +245,7 @@ export const getCostSummary = async (req: Request, res: Response) => {
     try {
         const { startDate, endDate, branchId } = req.query;
 
-        const where: any = {};
+        const where: any = { isRecurring: false };
 
         if (startDate && endDate) {
             where.date = {
@@ -325,6 +345,7 @@ export const getFinancialReport = async (req: Request, res: Response) => {
         // 2. Get Expenses (Costs)
         const costs = await prisma.cost.findMany({
             where: {
+                isRecurring: false,
                 date: {
                     gte: start,
                     lte: end
@@ -357,6 +378,7 @@ export const getFinancialReport = async (req: Request, res: Response) => {
             // Monthly Expenses
             const monthlyExpensesAgg = await prisma.cost.aggregate({
                 where: {
+                    isRecurring: false,
                     date: { gte: monthStart, lte: monthEnd }
                 },
                 _sum: { amount: true }

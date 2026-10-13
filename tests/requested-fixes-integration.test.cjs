@@ -76,6 +76,21 @@ test('requested fixes: history paging, whole-day agenda, recurring period, revok
   assert.equal(await prisma.cost.count({where:{recurringParentId:template.id}}),2);
   console.log('PASS: prior period, actual payment date, legacy status, duplicate prevention');
 
+  const product=await prisma.product.create({data:{name:'Synthetic supplies',currentStock:0}});
+  const purchased=await json(await request('/costs',{method:'POST',token:auth,body:{categoryId:category.id,description:'Synthetic inventory purchase',amount:25,date:'2026-10-31T23:50:00.000Z',items:[{productId:product.id,quantity:1,unitPrice:25}]}}),201);
+  assert.equal(purchased.createdBy,manager.id);
+  assert.equal((await prisma.product.findUnique({where:{id:product.id}})).currentStock,1);
+  const overview=await json(await request('/costs/overview?startMonth=2025-01&endMonth=2026-10&basis=payment&pageSize=1',{token:auth}));
+  assert.equal(overview.summary.total,225);assert.equal(overview.payments.length,1);assert.equal(overview.pagination.total,3);assert.equal(overview.detailTotal,225);
+  assert.equal(overview.comparison.find(m=>m.month==='2026-10').inventory,25);
+  const obligation=await json(await request('/costs/overview?startMonth=2025-02&endMonth=2025-02&basis=period',{token:auth}));
+  assert.equal(obligation.summary.total,100);assert.equal(obligation.payments[0].category.name,'Synthetic category');
+  const lastDay=await json(await request('/costs?startDate=2026-10-31&endDate=2026-10-31&isRecurring=false',{token:auth}));
+  assert.equal(lastDay.length,1);assert.equal(lastDay[0].id,purchased.id);
+  assert.equal((await request('/costs/overview?startMonth=2025-01&endMonth=2026-10',{token:oldToken})).status,403);
+  assert.equal((await request('/costs/overview?startMonth=2025-01&endMonth=2026-10')).status,401);
+  console.log('PASS: expense overview excludes definitions, respects period and includes linked inventory and last-day payments');
+
   await json(await request(`/users/${professional.id}`,{method:'PUT',token:auth,body:{isActive:false}}));
   assert.equal((await request('/auth/login',{method:'POST',body:{identifier:'four.doctor',password}})).status,401);
   assert.equal((await request('/appointments',{token:oldToken})).status,401);
