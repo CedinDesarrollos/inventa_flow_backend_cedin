@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
-import { prisma } from '../lib/prisma'; // Adapta la ruta si es necesario
+import { prisma } from '../lib/prisma';
+import { userProfileSelect } from '../lib/user-profile';
 import { z } from 'zod';
+import type { AuthRequest } from '../middleware/auth.middleware';
+import { createAppointmentSafely, updateAppointmentSafely, AppointmentError } from '../services/appointments/AppointmentService';
 
 // Validations
 const appointmentSchema = z.object({
@@ -14,7 +17,7 @@ const appointmentSchema = z.object({
     status: z.enum(['SCHEDULED', 'CONFIRMED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
     reason: z.string().optional(),
     notes: z.string().optional(),
-    isOverbooking: z.boolean().optional().default(false)
+    isOverbooking: z.boolean().optional()
 });
 
 // Validations
@@ -33,7 +36,7 @@ const getAppointmentsQuerySchema = z.object({
     paymentStatus: z.string().optional()
 });
 
-export const getAppointments = async (req: Request, res: Response) => {
+export const getAppointments = async (req: AuthRequest, res: Response) => {
     console.log('Controller: getAppointments called', req.query);
     try {
         const queryParams = getAppointmentsQuerySchema.parse(req.query);
@@ -63,7 +66,11 @@ export const getAppointments = async (req: Request, res: Response) => {
             };
         }
 
-        if (doctorId) where.doctorId = doctorId;
+        if (req.user?.role === 'PROFESSIONAL') {
+            where.doctorId = req.user.userId;
+        } else if (doctorId) {
+            where.doctorId = doctorId;
+        }
         if (patientId) where.patientId = patientId;
 
         if (status) {
@@ -89,7 +96,8 @@ export const getAppointments = async (req: Request, res: Response) => {
             include: {
                 patient: true,
                 doctor: {
-                    include: {
+                    select: {
+                        ...userProfileSelect,
                         professional: true
                     }
                 },
@@ -114,91 +122,50 @@ export const getAppointments = async (req: Request, res: Response) => {
     }
 };
 
-export const createAppointment = async (req: Request, res: Response) => {
-    console.log('Controller: createAppointment called', req.body);
+export const createAppointment = async (req: AuthRequest, res: Response) => {
     try {
         const data = appointmentSchema.parse(req.body);
-
-        // INPUT NO-SHIFT: User confirms correct storage requires NO shift on write.
-        const start = new Date(data.date);
-
-        const end = new Date(start.getTime() + data.duration * 60000);
-
-        // Check availability (overlap) for the doctor
-        // Skip overlap check for walk-in appointments (status CONFIRMED) since patient is already at clinic
-        // Also skip overlap if this is explicitly marked as an overbooking
-        console.log('Checking overlap - doctorId:', data.doctorId, 'status:', data.status, 'isOverbooking:', data.isOverbooking);
-
-        if (data.doctorId && !data.isOverbooking && (!data.status || data.status === 'SCHEDULED')) {
-            console.log('Performing overlap check for doctor:', data.doctorId);
-            const overlap = await prisma.appointment.findFirst({
-                where: {
-                    doctorId: data.doctorId,
-                    status: { not: 'CANCELLED' },
-                    OR: [
-                        {
-                            date: { lt: end },
-                            endDate: { gt: start }
-                        }
-                    ]
-                }
-            });
-
-            console.log('Overlap found:', overlap);
-            if (overlap) {
-                return res.status(409).json({ error: 'El profesional ya tiene una cita en ese horario.' });
-            }
-        } else {
-            console.log('Skipping overlap check - Overbooking, Walk-in appointment, or no doctor assigned');
-        }
-
-        const appointment = await prisma.appointment.create({
-            data: {
-                ...data,
-                date: start,
-                endDate: end, // Calculated end date
-                status: data.status || 'SCHEDULED' // Use provided status or default to SCHEDULED
-            },
-            include: {
-                patient: true
-            }
+        const appointment = await createAppointmentSafely({
+            ...data,
+            date: new Date(data.date),
+            status: data.status || 'SCHEDULED',
+            isOverbooking: data.isOverbooking ?? false
         });
-
         res.status(201).json(appointment);
     } catch (error) {
         if (error instanceof z.ZodError) {
-            return res.status(400).json({ error: (error as any).errors });
+            return res.status(400).json({ error: 'Datos de cita inválidos', details: error.issues });
+        }
+        if (error instanceof AppointmentError) {
+            return res.status(error.status).json({ error: error.message });
         }
         console.error(error);
         res.status(500).json({ error: 'Error al crear la cita' });
     }
 };
 
-export const updateAppointment = async (req: Request, res: Response) => {
+export const updateAppointment = async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params as { id: string };
         const data = appointmentSchema.partial().parse(req.body);
-
-        const appointment = await prisma.appointment.update({
-            where: { id },
-            data: {
-                ...data,
-                date: data.date ? new Date(data.date) : undefined,
-                // Recalculate endDate if duration or date changes?
-                // For simplicity, if date provided, recalculate.
-            }
-        });
-
-        // Logic for endDate recalc if needed, skipped for brevity in this step.
-
+        const appointment = await updateAppointmentSafely(id, {
+            ...data,
+            date: data.date ? new Date(data.date) : undefined
+        }, req.user?.role === 'PROFESSIONAL' ? req.user.userId : undefined);
         res.json(appointment);
     } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Datos de cita inválidos', details: error.issues });
+        }
+        if (error instanceof AppointmentError) {
+            return res.status(error.status).json({ error: error.message });
+        }
         console.error(error);
         res.status(500).json({ error: 'Error al actualizar cita' });
     }
 };
 
-export const updateAppointmentStatus = async (req: Request, res: Response) => {
+export const updateAppointmentStatus = async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params as { id: string };
         const { status, secretaryNote } = updateStatusSchema.parse(req.body);
@@ -229,16 +196,16 @@ export const updateAppointmentStatus = async (req: Request, res: Response) => {
             }
         }
 
-        const appointment = await prisma.appointment.update({
-            where: { id },
-            data: updateData
-        });
+        const appointment = await updateAppointmentSafely(id, updateData,
+            req.user?.role === 'PROFESSIONAL' ? req.user.userId : undefined);
 
         // Trigger Notification Logic here (Placeholder)
         // if (status === 'CONFIRMED') { sendWhatsAppConfirmation(appointment); }
 
         res.json(appointment);
     } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ error: 'Estado inválido', details: error.issues });
+        if (error instanceof AppointmentError) return res.status(error.status).json({ error: error.message });
         console.error(error);
         res.status(500).json({ error: 'Error al actualizar estado' });
     }

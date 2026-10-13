@@ -1,0 +1,32 @@
+name: Predeploy checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      TEST_DATABASE_URL: postgresql://inventa:synthetic@127.0.0.1:5432/postgres
+      DATABASE_URL: postgresql://inventa:synthetic@127.0.0.1:5432/postgres
+    services:
+      postgres:
+        image: postgres:16-bookworm
+        env:
+          POSTGRES_USER: inventa
+          POSTGRES_PASSWORD: synthetic
+          POSTGRES_DB: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U inventa -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --include=dev
+      - run: npm run check
+      - run: npm audit --audit-level=low

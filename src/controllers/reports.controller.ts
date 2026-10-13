@@ -494,7 +494,6 @@ export const getReminderDetails = async (req: Request, res: Response) => {
                 appointment: {
                     include: {
                         patient: true,
-                        doctor: true
                     }
                 }
             },

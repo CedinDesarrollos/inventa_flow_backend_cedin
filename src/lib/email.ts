@@ -1,19 +1,26 @@
 import nodemailer from 'nodemailer';
 
+const smtpConfigured = Boolean(process.env.SMTP_USER && process.env.SMTP_PASSWORD);
 const transporter = nodemailer.createTransport({
-    host: "mail.inventa.com.py",
-    port: 465,
-    secure: true, // true for 465, false for other ports
+    host: process.env.SMTP_HOST || 'mail.inventa.com.py',
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: process.env.SMTP_SECURE !== 'false',
     auth: {
-        user: "no-reply@inventa.com.py",
-        pass: "n}zGDAG[R~?fVCAb",
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD,
     },
 });
+const sender = process.env.SMTP_FROM || '"InventaFlow System" <no-reply@inventa.com.py>';
+
 
 export const sendWelcomeEmail = async (email: string, name: string, username: string, tempPass: string) => {
+    if (!smtpConfigured || process.env.NOTIFICATIONS_ENABLED === 'false') {
+        console.error('Email disabled: configure SMTP_USER and SMTP_PASSWORD');
+        return false;
+    }
     try {
         const info = await transporter.sendMail({
-            from: '"InventaFlow System" <no-reply@inventa.com.py>', // sender address
+            from: sender, // sender address
             to: email, // list of receivers
             subject: "Bienvenido a InventaFlow - Acceso al Sistema", // Subject line
             html: `
@@ -43,9 +50,13 @@ export const sendWelcomeEmail = async (email: string, name: string, username: st
 };
 
 export const sendPasswordResetEmail = async (email: string, name: string, resetUrl: string) => {
+    if (!smtpConfigured || process.env.NOTIFICATIONS_ENABLED === 'false') {
+        console.error('Email disabled: configure SMTP_USER and SMTP_PASSWORD');
+        return false;
+    }
     try {
         const info = await transporter.sendMail({
-            from: '"InventaFlow System" <no-reply@inventa.com.py>',
+            from: sender,
             to: email,
             subject: "Recuperación de Contraseña - InventaFlow",
             html: `

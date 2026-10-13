@@ -1,11 +1,11 @@
+import { authenticateToken } from '../middleware/auth.middleware';
 import { Router } from 'express';
 import * as whatsappController from '../controllers/whatsapp.controller';
-// import { authenticate } from '../middleware/auth'; // Ensure we protect these routes
 
 const router = Router();
 
-// TODO: Add authentication middleware
-// router.use(authenticate);
+router.use(authenticateToken);
+
 
 router.get('/status', whatsappController.getStatus);
 router.post('/logout', whatsappController.logout);

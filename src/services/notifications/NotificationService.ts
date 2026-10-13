@@ -134,6 +134,7 @@ export class NotificationService {
     }
 
     async initialize() {
+        if (process.env.NOTIFICATIONS_ENABLED === 'false') return;
         await this.twilioProvider.initialize();
         // Don't await baileys strictly if it hangs on connection
         this.baileysProvider.initialize().catch(err => console.error('Failed to init Baileys', err));
@@ -150,6 +151,7 @@ export class NotificationService {
         userId?: string;
         forceProvider?: 'twilio' | 'baileys';
     }) {
+        if (process.env.NOTIFICATIONS_ENABLED === 'false') throw new Error('Outbound notifications are disabled');
         const patient = await prisma.patient.findUnique({
             where: { id: params.patientId }
         });

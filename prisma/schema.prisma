@@ -222,6 +222,7 @@ model Appointment {
   patient            Patient               @relation(fields: [patientId], references: [id])
   service            Service?              @relation(fields: [serviceId], references: [id])
   npsResponse        NpsResponse?
+  transactions       Transaction[]
 
   @@map("appointments")
   @@schema("inventa_clinical_app")
@@ -361,6 +362,7 @@ model MedicationCatalog {
 
 model Transaction {
   id                String            @id @default(uuid())
+  appointmentId     String?           @map("appointment_id")
   patientId         String            @map("patient_id")
   authorId          String?           @map("author_id")
   type              TransactionType
@@ -386,7 +388,9 @@ model Transaction {
   author            User?             @relation("TransactionAuthor", fields: [authorId], references: [id])
   doctor            User?             @relation("TransactionDoctor", fields: [doctorId], references: [id])
   patient           Patient           @relation(fields: [patientId], references: [id])
+  appointment       Appointment?      @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
 
+  @@index([appointmentId])
   @@map("transactions")
   @@schema("inventa_clinical_app")
 }

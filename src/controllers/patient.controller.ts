@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { userProfileSelect } from '../lib/user-profile';
 import { z } from 'zod';
 
 const patientSchema = z.object({
@@ -136,7 +137,7 @@ export const getPatientById = async (req: Request, res: Response) => {
                 clinicalRecords: {
                     orderBy: { date: 'desc' },
                     take: 5,
-                    include: { doctor: true }
+                    include: { doctor: { select: userProfileSelect } }
                 },
                 relationshipsAsSubject: {
                     include: { relative: true }
