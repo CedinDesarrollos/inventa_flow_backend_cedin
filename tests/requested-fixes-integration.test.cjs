@@ -78,6 +78,8 @@ test('requested fixes: history paging, whole-day agenda, recurring period, revok
   assert.equal(billingRows[0].branchId,branch.id);assert.equal(Number(billingRows[0].amountPaid),100);
   const cashRows=await json(await request('/transactions?startDate=2026-09-01&endDate=2026-09-30&cashFlow=true',{token:auth}));
   assert.equal(cashRows.length,1);assert.equal(Number(cashRows[0].amountPaid),60);assert.equal(cashRows[0].branchId,branch.id);
+  const otherScope=await json(await request(`/reports/kpis?startDate=2026-09-01&endDate=2026-09-30&branchId=${secondBranch.id}`,{token:auth}));
+  assert.equal(otherScope.operations.totalAttended,0);
   console.log('PASS: report receipts use payment date/amount and appointment branch before patient current branch');
 
 

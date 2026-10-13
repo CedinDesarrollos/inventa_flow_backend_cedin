@@ -22,8 +22,7 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
         if (branchId && branchId !== 'all') {
             branchFilter.OR = [
                 { branchId: String(branchId) },
-                { branch: { id: String(branchId) } },
-                { patient: { branchId: String(branchId) } } // Fallback to patient branch if needed, but appointment.branchId should be primary
+                { branchId: null, patient: { branchId: String(branchId) } }
             ];
         }
 
