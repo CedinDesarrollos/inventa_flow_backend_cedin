@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
-import { subMonths, startOfDay, endOfDay, isValid } from 'date-fns';
+import { subMonths, isValid } from 'date-fns';
+import { clinicDateRange, CLINIC_TIMEZONE } from '../lib/clinic-dates';
+import { DateTime } from 'luxon';
 import { AppointmentStatus } from '@prisma/client';
 
 const CLINIC_CONFIG_KEY = 'CLINIC_CONFIG';
@@ -14,28 +16,8 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Start date and end date are required' });
         }
 
-        let start = new Date(String(startDate));
-        let end = new Date(String(endDate));
-
-        if (!isValid(start) || !isValid(end)) {
-            return res.status(400).json({ message: 'Invalid date format' });
-        }
-
-        // Adjust dates to cover full day (00:00:00 to 23:59:59)
-        // Ensure we don't shift timezone unexpectedly, assume inputs are YYYY-MM-DD
-        // Append time if missing to be safe or set components
-
-        // If string length is 10 (YYYY-MM-DD), force UTC boundaries
-        if (String(startDate).length === 10) {
-            start = new Date(`${startDate}T00:00:00.000Z`);
-        }
-        if (String(endDate).length === 10) {
-            end = new Date(`${endDate}T23:59:59.999Z`);
-        } else {
-            // Fallback for other formats (ensure end covers items)
-            end.setHours(23, 59, 59, 999);
-        }
-
+        const range = clinicDateRange(String(startDate), String(endDate));
+        const start = range.gte;
         const branchFilter: any = {};
         if (branchId && branchId !== 'all') {
             branchFilter.OR = [
@@ -53,10 +35,7 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
         // 1. Fetch appointments in range for Status Distribution
         const appointments = await prisma.appointment.findMany({
             where: {
-                date: {
-                    gte: start,
-                    lte: end
-                },
+                date: range,
                 ...branchFilter,
                 ...doctorFilter
             },
@@ -106,7 +85,7 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
 
                 // Daily breakdown for charts
                 // Use simplified date string YYYY-MM-DD
-                const dayKey = app.date.toISOString().split('T')[0];
+                const dayKey = DateTime.fromJSDate(app.date, {zone:CLINIC_TIMEZONE}).toISODate()!;
                 if (!opsStats.daily[dayKey]) {
                     opsStats.daily[dayKey] = { count: 0, duration: 0 };
                 }
@@ -217,6 +196,7 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
         });
 
     } catch (error) {
+        if (error instanceof RangeError) return res.status(400).json({message:error.message});
         console.error('Get KPIs Error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }

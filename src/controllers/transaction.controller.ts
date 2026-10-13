@@ -88,9 +88,10 @@ export const getTransactions = async (req: Request, res: Response) => {
 
         console.log('Final where clause:', JSON.stringify(where, null, 2));
 
-        const transactions = await prisma.transaction.findMany({
+        const storedTransactions = await prisma.transaction.findMany({
             where,
             include: {
+                appointment: { select: { branchId: true } },
                 patient: {
                     include: {
                         insurance: true
@@ -122,6 +123,7 @@ export const getTransactions = async (req: Request, res: Response) => {
             }
         });
 
+        const transactions = storedTransactions.map(transaction => ({...transaction, branchId: transaction.appointment?.branchId || transaction.patient?.branchId || null}));
         console.log(`Found ${transactions.length} transactions`);
         if (cashFlow) {
             res.json(transactions.flatMap(transaction => {

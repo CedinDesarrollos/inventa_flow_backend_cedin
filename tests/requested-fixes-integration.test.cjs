@@ -62,6 +62,25 @@ test('requested fixes: history paging, whole-day agenda, recurring period, revok
   for(const apt of [arrived,attending,elsewhere,anotherDoctor,nextDay])assert.equal((await prisma.appointment.findUnique({where:{id:apt.id}})).status,apt.status);
   assert.equal((await request('/appointments/close-agenda',{method:'POST',token:auth,body:{date:tomorrow}})).status,400);
   console.log('PASS: entire pending day closes, arrived/active/other scopes remain');
+  const {clinicDateRange}=require('../dist/lib/clinic-dates');const range=clinicDateRange('2026-09-01','2026-09-30');
+  const operational=async(date)=>prisma.appointment.create({data:{patientId:patient.id,doctorId:professional.id,branchId:branch.id,date,duration:35,type:'CONSULTATION',status:'COMPLETED'}});
+  await operational(new Date(range.gte.getTime()-60000));await operational(range.gte);await operational(new Date(range.lt.getTime()-60000));await operational(range.lt);
+  const report=await json(await request(`/reports/kpis?startDate=2026-09-01&endDate=2026-09-30&branchId=${branch.id}&doctorId=${professional.id}`,{token:auth}));
+  assert.equal(report.operations.totalAttended,2);assert.deepEqual(report.operations.history.map(day=>day.date),['2026-09-01','2026-09-30']);assert.equal(report.operations.avgDuration,35);
+  assert.equal((await request('/reports/kpis?startDate=2026-09-30&endDate=2026-09-01',{token:auth})).status,400);
+  console.log('PASS: dashboard dates and daily duration use clinic timezone and reject reversed ranges');
+  const billingPatient=await prisma.patient.create({data:{firstName:'Synthetic',lastName:'Report billing',identifier:'REPORT-BILLING',branchId:secondBranch.id}});
+  const billingAppointment=await prisma.appointment.create({data:{patientId:billingPatient.id,doctorId:professional.id,branchId:branch.id,date:range.gte,duration:20,type:'CONSULTATION',status:'COMPLETED'}});
+  const billing=await prisma.transaction.create({data:{patientId:billingPatient.id,appointmentId:billingAppointment.id,doctorId:professional.id,authorId:manager.id,type:'TICKET',paymentMethod:'CASH',status:'COMPLETED',subtotal:100,total:100,amountPaid:100,balance:0,createdAt:range.gte}});
+  await prisma.payment.create({data:{transactionId:billing.id,amount:60,paymentMethod:'CASH',createdAt:new Date('2026-09-02T15:00:00Z'),createdBy:manager.id}});
+  await prisma.payment.create({data:{transactionId:billing.id,amount:40,paymentMethod:'CASH',createdAt:new Date('2026-10-02T15:00:00Z'),createdBy:manager.id}});
+  const billingRows=await json(await request('/transactions?startDate=2026-09-01&endDate=2026-09-30',{token:auth}));
+  assert.equal(billingRows[0].branchId,branch.id);assert.equal(Number(billingRows[0].amountPaid),100);
+  const cashRows=await json(await request('/transactions?startDate=2026-09-01&endDate=2026-09-30&cashFlow=true',{token:auth}));
+  assert.equal(cashRows.length,1);assert.equal(Number(cashRows[0].amountPaid),60);assert.equal(cashRows[0].branchId,branch.id);
+  console.log('PASS: report receipts use payment date/amount and appointment branch before patient current branch');
+
+
 
   const category=await prisma.costCategory.create({data:{name:'Synthetic category',type:'FIXED'}});
   const template=await prisma.cost.create({data:{categoryId:category.id,description:'Synthetic recurring cost',amount:100,date:new Date(),isRecurring:true,recurrenceRule:'MONTHLY'}});
