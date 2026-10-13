@@ -150,3 +150,18 @@ test('non-administrators cannot create users, change roles or reset other passwo
         assert.equal((await request('/api/users', { method: 'POST', auth: token(role), body: {} })).status, 400);
     }
 });
+
+test('initial and split overpayments are rejected before opening a database transaction', async () => {
+    let writes = 0;
+    prisma.$transaction = async () => { writes++; throw new Error('Unexpected write'); };
+    const body = { patientId: patient, type: 'TICKET', paymentMethod: 'CASH', subtotal: 100, savings: 0, total: 100, items: [] };
+    for (const extra of [
+        { initialPayment: 101 },
+        { payments: [{ amount: 60, paymentMethod: 'CASH' }, { amount: 41, paymentMethod: 'CARD' }] },
+        { total: 0.014, payments: [{ amount: 0.006, paymentMethod: 'CASH' }, { amount: 0.006, paymentMethod: 'CARD' }] }
+    ]) {
+        const response = await request('/api/transactions', { method: 'POST', auth: token('PROFESSIONAL'), body: { ...body, ...extra } });
+        assert.equal(response.status, 400);
+    }
+    assert.equal(writes, 0);
+});

@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
+
+// Match PostgreSQL Decimal(10, 2) storage when calculating persisted balances.
+const storedMoney = (value: number) => new Prisma.Decimal(value).toDecimalPlaces(2);
 
 // Validation schemas
 const transactionItemSchema = z.object({
@@ -37,6 +41,19 @@ const createTransactionSchema = z.object({
         paymentCode: z.string().optional(),
         notes: z.string().optional()
     })).optional()
+}).superRefine((data, context) => {
+    const splitPayments = data.payments || [];
+    const amounts = splitPayments.length ? splitPayments.map(payment => payment.amount) : [data.initialPayment || 0];
+    const paid = amounts.reduce((sum, amount) => sum.plus(amount), new Prisma.Decimal(0));
+    const storedPaid = amounts.reduce((sum, amount) => sum.plus(storedMoney(amount)), new Prisma.Decimal(0));
+    if (paid.gt(data.total) || storedPaid.gt(storedMoney(data.total))) {
+        context.addIssue({ code: 'custom', path: [splitPayments.length ? 'payments' : 'initialPayment'], message: 'El pago inicial no puede superar el total.' });
+    }
+    splitPayments.forEach((payment, index) => {
+        if (storedMoney(payment.amount).isZero()) {
+            context.addIssue({ code: 'custom', path: ['payments', index, 'amount'], message: 'El pago debe ser al menos 0.01.' });
+        }
+    });
 });
 
 export const getTransactions = async (req: Request, res: Response) => {
@@ -165,21 +182,17 @@ export const createTransaction = async (req: Request, res: Response) => {
         // Start transaction to ensure atomicity
         const result = await prisma.$transaction(async (tx) => {
             // Determine initial payment amount
-            let initialPayment = 0;
-            const splitPayments = data.payments || [];
+            let initialPayment = storedMoney(data.initialPayment || 0);
+            const splitPayments = (data.payments || []).map(payment => ({ ...payment, amount: storedMoney(payment.amount) }));
 
             if (splitPayments.length > 0) {
                 // Sum up split payments
-                initialPayment = splitPayments.reduce((sum, p) => sum + p.amount, 0);
-            } else {
-                // Fallback to legacy single payment
-                initialPayment = data.initialPayment || 0;
+                initialPayment = splitPayments.reduce((sum, p) => sum.plus(p.amount), new Prisma.Decimal(0));
             }
 
-            const balance = data.total - initialPayment;
-            // Allow small float variance
-            const isCompleted = Math.abs(balance) < 0.01;
-            const status = isCompleted ? 'COMPLETED' : initialPayment > 0 ? 'PARTIAL' : 'PENDING';
+            const balance = storedMoney(data.total).minus(initialPayment);
+            const isCompleted = balance.isZero();
+            const status = isCompleted ? 'COMPLETED' : initialPayment.gt(0) ? 'PARTIAL' : 'PENDING';
 
             // Determine main payment method for the Transaction record
             // If split payments are used, force MIXED.
@@ -251,7 +264,7 @@ export const createTransaction = async (req: Request, res: Response) => {
                         }
                     });
                 }
-            } else if (initialPayment > 0) {
+            } else if (initialPayment.gt(0)) {
                 // Create single legacy payment
                 await tx.payment.create({
                     data: {

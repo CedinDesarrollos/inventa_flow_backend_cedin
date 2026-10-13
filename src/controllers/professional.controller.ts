@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { userProfileSelect } from '../lib/user-profile';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
@@ -42,7 +43,7 @@ export const getProfessionals = async (req: Request, res: Response) => {
         const professionals = await prisma.professional.findMany({
             orderBy: { lastName: 'asc' },
             include: {
-                user: true,
+                user: { select: userProfileSelect },
                 acceptedInsurances: true
             }
         });

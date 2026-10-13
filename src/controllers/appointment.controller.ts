@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { userProfileSelect } from '../lib/user-profile';
 import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { createAppointmentSafely, updateAppointmentSafely, AppointmentError } from '../services/appointments/AppointmentService';
@@ -95,7 +96,8 @@ export const getAppointments = async (req: AuthRequest, res: Response) => {
             include: {
                 patient: true,
                 doctor: {
-                    include: {
+                    select: {
+                        ...userProfileSelect,
                         professional: true
                     }
                 },

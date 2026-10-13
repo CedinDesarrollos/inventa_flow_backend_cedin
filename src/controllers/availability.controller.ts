@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { userProfileSelect } from '../lib/user-profile';
 import { z } from 'zod';
 import { appointmentEnd } from '../services/appointments/AppointmentService';
 
@@ -24,7 +25,7 @@ export const getAvailableProfessionals = async (req: Request, res: Response) => 
         // 1. Get all professionals
         // En un futuro, filtraremos por "Working Hours" aquí también
         const allProfessionals = await prisma.professional.findMany({
-            include: { user: true }
+            include: { user: { select: userProfileSelect } }
         });
 
         // 2. Find professionals with overlapping appointments

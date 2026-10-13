@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { userProfileSelect } from '../lib/user-profile';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
@@ -59,13 +60,11 @@ export const register = async (req: Request, res: Response) => {
                 passwordHash: hashedPassword,
                 fullName,
                 role: role || 'PROFESSIONAL'
-            }
+            },
+            select: userProfileSelect
         });
 
-        // Don't return password hash
-        const { passwordHash: _, ...userWithoutPassword } = user;
-
-        res.status(201).json(userWithoutPassword);
+        res.status(201).json(user);
     } catch (error) {
         console.error('Registration Error:', error);
         if (error instanceof z.ZodError) {
