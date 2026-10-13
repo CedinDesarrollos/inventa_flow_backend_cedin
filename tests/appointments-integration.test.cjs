@@ -16,7 +16,10 @@ test('real PostgreSQL enforces own-agenda access while preserving authorized ope
         await admin.query(`CREATE DATABASE "${name}"`); created = true;
         const url = new URL(source); url.pathname = '/' + name;
         pool = new Pool({ connectionString: url.toString() });
-        await pool.query(readFileSync(require('node:path').join(__dirname, '../prisma/migrations/20261011000000_baseline/migration.sql'), 'utf8'));
+        for (const migration of require('node:fs').readdirSync(require('node:path').join(__dirname, '../prisma/migrations')).sort()) {
+            const file = require('node:path').join(__dirname, '../prisma/migrations', migration, 'migration.sql');
+            if (require('node:fs').existsSync(file)) await pool.query(readFileSync(file, 'utf8'));
+        }
         // Inject a local test adapter; production TLS configuration is unchanged.
         prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
         global.prisma = prisma;
@@ -30,7 +33,9 @@ test('real PostgreSQL enforces own-agenda access while preserving authorized ope
             email: `${key}@example.invalid`, fullName: `Synthetic ${key}`, passwordHash: 'not-a-real-password', role: 'PROFESSIONAL'
         } })));
         const patient = await prisma.patient.create({ data: { firstName: 'Synthetic', lastName: 'Patient', identifier: 'synthetic-only' } });
-        function auth(userId, role = 'PROFESSIONAL') { return jwt.sign({ userId, role }, process.env.JWT_SECRET); }
+        const staff = {};
+        for (const role of ['ADMIN', 'SECRETARY']) staff[role] = await prisma.user.create({ data: { email: `${role}@example.invalid`, fullName: `Synthetic ${role}`, passwordHash: 'not-a-real-password', role } });
+        function auth(userId, role = 'PROFESSIONAL') { return jwt.sign({ userId: staff[role]?.id || userId, role }, process.env.JWT_SECRET); }
         async function request(path, { method = 'GET', token, body } = {}) {
             return fetch(base + path, { method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
         }

@@ -20,75 +20,27 @@ const clinicalRecordSchema = z.object({
 export const getClinicalRecords = async (req: Request, res: Response) => {
     try {
         const { patientId } = req.params as { patientId: string };
-
-        // Fetch existing records
-        let records = await prisma.clinicalRecord.findMany({
-            where: { patientId },
-            orderBy: { date: 'desc' },
-            include: {
-                doctor: {
-                    select: {
-                        id: true,
-                        fullName: true,
-                        professional: {
-                            select: { specialty: true }
-                        }
-                    }
-                },
-                prescriptions: true,
-            },
-        });
-
-        // If no records exist, create an initial empty record
-        if (records.length === 0) {
-            console.log(`No clinical records found for patient ${patientId}, creating initial record...`);
-
-            // Verify patient exists before creating record
-            const patient = await prisma.patient.findUnique({
-                where: { id: patientId }
-            });
-
-            if (!patient) {
-                return res.status(404).json({ error: 'Paciente no encontrado' });
-            }
-
-            // Create initial record with empty content
-            const initialRecord = await prisma.clinicalRecord.create({
-                data: {
-                    patientId,
-                    doctorId: null, // System-generated, no specific doctor
-                    content: {
-                        type: 'doc',
-                        content: [{
-                            type: 'paragraph',
-                            content: [{
-                                type: 'text',
-                                text: 'Ficha clínica inicializada.'
-                            }]
-                        }]
-                    },
-                    date: new Date()
-                },
-                include: {
-                    doctor: {
-                        select: {
-                            id: true,
-                            fullName: true,
-                            professional: {
-                                select: { specialty: true }
-                            }
-                        }
-                    },
-                    prescriptions: true,
-                }
-            });
-
-            records = [initialRecord];
-            console.log(`Initial clinical record created for patient ${patientId}`);
+        const paginated = req.query.page !== undefined || req.query.pageSize !== undefined;
+        const { page, pageSize } = z.object({
+            page: z.coerce.number().int().min(1).max(1000000).default(1),
+            pageSize: z.coerce.number().int().min(1).max(50).default(10)
+        }).parse(req.query);
+        const include = {
+            doctor: { select: { id: true, fullName: true, professional: { select: { specialty: true } } } },
+            prescriptions: true
+        };
+        const total = await prisma.clinicalRecord.count({ where: { patientId } });
+        if (!total && !(await prisma.patient.findUnique({ where: { id: patientId }, select: { id: true } }))) {
+            return res.status(404).json({ error: 'Paciente no encontrado' });
         }
-
-        res.json(records);
+        // Opening or paging a history must not create artificial clinical notes.
+        const records = await prisma.clinicalRecord.findMany({
+            where: { patientId }, orderBy: [{ date: 'desc' }, { id: 'desc' }], include,
+            ...(paginated ? { skip: (page - 1) * pageSize, take: pageSize } : {})
+        });
+        res.json(paginated ? { records, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } : records);
     } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ error: 'Paginación inválida' });
         console.error('Error fetching clinical records:', error);
         res.status(500).json({ error: 'Error al obtener historial clínico' });
     }

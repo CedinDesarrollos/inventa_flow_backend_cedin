@@ -92,7 +92,7 @@ export const login = async (req: Request, res: Response) => {
             }
         });
 
-        if (!user) {
+        if (!user || !user.isActive) {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
@@ -102,7 +102,7 @@ export const login = async (req: Request, res: Response) => {
         }
 
         const token = jwt.sign(
-            { userId: user.id, role: user.role, email: user.email },
+            { userId: user.id, role: user.role, email: user.email, sessionVersion: user.sessionVersion },
             JWT_SECRET,
             { expiresIn: rememberMe ? '12h' : '4h' }
         );

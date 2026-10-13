@@ -44,7 +44,7 @@ test('migration deployment and existing-schema baseline preserve data and reject
         ok(await run(fresh.url, 'deploy'));
         ok(await run(fresh.url, 'deploy'));
         const applied = await fresh.pool.query('SELECT count(*)::int AS count FROM public._prisma_migrations WHERE finished_at IS NOT NULL');
-        assert.equal(applied.rows[0].count, 2);
+        assert.equal(applied.rows[0].count, 3);
         const diff = await execute(fresh.url, [require.resolve('prisma/build/index.js'), 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code']);
         ok(diff);
 
@@ -66,7 +66,7 @@ test('migration deployment and existing-schema baseline preserve data and reject
         ok(await run(existing.url, 'baseline'));
         ok(await run(existing.url, 'deploy'));
         assert.equal((await existing.pool.query("SELECT full_name FROM inventa_clinical_app.users WHERE id = 'sentinel'")).rows[0].full_name, 'Synthetic test');
-        assert.equal((await existing.pool.query('SELECT count(*)::int AS count FROM public._prisma_migrations WHERE finished_at IS NOT NULL')).rows[0].count, 2);
+        assert.equal((await existing.pool.query('SELECT count(*)::int AS count FROM public._prisma_migrations WHERE finished_at IS NOT NULL')).rows[0].count, 3);
         const duplicate = await run(existing.url, 'baseline');
         assert.equal(duplicate.status, 1);
         assert.match(duplicate.stderr, /Baseline already recorded/);

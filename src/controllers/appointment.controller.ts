@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { userProfileSelect } from '../lib/user-profile';
 import { z } from 'zod';
+import { DateTime } from 'luxon';
+import { cashCloseDateRange, CLINIC_TIMEZONE } from '../lib/clinic-dates';
 import type { AuthRequest } from '../middleware/auth.middleware';
 import { createAppointmentSafely, updateAppointmentSafely, AppointmentError } from '../services/appointments/AppointmentService';
 
@@ -221,57 +223,38 @@ export const deleteAppointment = async (req: Request, res: Response) => {
     }
 };
 
-export const closeDailyAgenda = async (req: Request, res: Response) => {
+export const closeDailyAgenda = async (req: AuthRequest, res: Response) => {
     try {
-        const { cutOffTime } = req.body;
-
-        // Default to now if not provided, but frontend should provide it for consistency
-        const limitDate = cutOffTime ? new Date(cutOffTime) : new Date();
-
-        // Safety buffer: Ensure we don't close future appointments accidentally if frontend sends wrong time
-        // Actually, requirement is: "Already passed their time".
-        // The frontend calculates "Now - 30m". We trust the frontend's explicit "Until XX:XX" 
-        // but we ensure it's not in the future relative to server time + small margin.
-
-        const now = new Date();
-        if (limitDate > now) {
-            return res.status(400).json({ error: 'La hora de corte no puede ser futura.' });
-        }
-
-        const startOfDay = new Date(limitDate);
-        startOfDay.setHours(0, 0, 0, 0);
-
-        // Update queries
-        // Build Where Clause
-        const whereClause: any = {
-            date: {
-                gte: startOfDay,
-                lte: limitDate
-            },
-            status: { in: ['SCHEDULED', 'CONFIRMED'] } // Close both Scheduled and Confirmed (but not Arrived)
-        };
-
-        if (req.body.doctorId) {
-            whereClause.doctorId = req.body.doctorId;
-        }
-
-        // Update queries
+        const data = z.object({
+            date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+            cutOffTime: z.string().datetime().optional(),
+            doctorId: z.string().uuid().optional(),
+            branchId: z.string().uuid().optional()
+        }).parse(req.body);
+        const today = DateTime.now().setZone(CLINIC_TIMEZONE).toISODate()!;
+        const day = data.date || (data.cutOffTime ? DateTime.fromISO(data.cutOffTime).setZone(CLINIC_TIMEZONE).toISODate()! : today);
+        if (day > today) return res.status(400).json({ error: 'No puede cerrar una agenda de un día futuro' });
+        // Appointment dates encode the clinic's wall-clock date/time at UTC, matching the booking UI.
+        const range = cashCloseDateRange(day);
+        // Older clients send an instant cutoff; retain their limited-close behavior during rollout.
+        const cutoff = data.cutOffTime && !data.date ? DateTime.fromISO(data.cutOffTime).setZone(CLINIC_TIMEZONE) : null;
+        if (cutoff && cutoff.toMillis() > Date.now()) return res.status(400).json({ error: 'La hora de corte no puede ser futura' });
+        const bounds = cutoff ? {
+            gte: range.gte,
+            lte: DateTime.utc(cutoff.year, cutoff.month, cutoff.day, cutoff.hour, cutoff.minute, cutoff.second, cutoff.millisecond).toJSDate()
+        } : range;
         const result = await prisma.appointment.updateMany({
-            where: whereClause,
-            data: {
-                status: 'NO_SHOW'
-            }
+            where: {
+                date: bounds,
+                status: { in: ['SCHEDULED', 'CONFIRMED'] },
+                ...(data.doctorId ? { doctorId: data.doctorId } : {}),
+                ...(data.branchId ? { branchId: data.branchId } : {})
+            },
+            data: { status: 'NO_SHOW' }
         });
-
-        console.log(`Agenda closed until ${limitDate.toISOString()}. Updated ${result.count} appointments.`);
-
-        res.json({
-            message: 'Agenda cerrada correctamente',
-            count: result.count,
-            cutOffTime: limitDate
-        });
-
+        res.json({ message: 'Agenda cerrada correctamente', count: result.count, date: day });
     } catch (error) {
+        if (error instanceof z.ZodError || error instanceof RangeError) return res.status(400).json({ error: 'Datos de cierre inválidos' });
         console.error('Error closing agenda:', error);
         res.status(500).json({ error: 'Error al cerrar la agenda' });
     }

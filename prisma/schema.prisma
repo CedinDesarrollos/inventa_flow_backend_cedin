@@ -20,6 +20,7 @@ model User {
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @updatedAt @map("updated_at")
   isActive              Boolean                @default(true) @map("is_active")
+  sessionVersion        Int                    @default(0) @map("session_version")
   phone                 String?
   mustChangePassword    Boolean                @default(false) @map("must_change_password")
   mustChangePin         Boolean                @default(true) @map("must_change_pin")
@@ -586,6 +587,7 @@ model Cost {
   isRecurring       Boolean      @default(false) @map("is_recurring")
   recurrenceRule    String?      @map("recurrence_rule")
   recurringParentId String?      @map("recurring_parent_id")
+  recurringPeriod   String?      @map("recurring_period") @db.VarChar(7)
   branchId          String?      @map("branch_id")
   receiptUrl        String?      @map("receipt_url")
   notes             String?
@@ -602,6 +604,7 @@ model Cost {
   @@index([categoryId])
   @@index([branchId])
   @@index([recurringParentId])
+  @@unique([recurringParentId, recurringPeriod])
   @@map("costs")
   @@schema("inventa_clinical_app")
 }

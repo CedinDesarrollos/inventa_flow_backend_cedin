@@ -4,6 +4,7 @@ import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
 import { sendWelcomeEmail, generateSecurePassword } from '../lib/email';
+import type { AuthRequest } from '../middleware/auth.middleware';
 
 const userSchema = z.object({
     fullName: z.string().min(1, "Nombre requerido"),
@@ -97,7 +98,10 @@ export const createUser = async (req: Request, res: Response) => {
 export const updateUser = async (req: Request, res: Response) => {
     try {
         const { id } = req.params as { id: string };
-        const data = userSchema.partial().parse(req.body);
+        const data = userSchema.partial().extend({ isActive: z.boolean().optional() }).parse(req.body);
+        if (data.isActive === false && id === (req as AuthRequest).user?.userId) {
+            return res.status(400).json({ error: 'No puede inactivar su propia cuenta' });
+        }
 
         // Check for collisions if updating email or username
         if (data.email || data.username) {
@@ -121,9 +125,15 @@ export const updateUser = async (req: Request, res: Response) => {
             }
         }
 
+        const current = await prisma.user.findUnique({ where: { id }, select: { isActive: true, role: true } });
+        if (!current) return res.status(404).json({ error: 'Usuario no encontrado' });
+        const revokeSessions = (data.isActive !== undefined && data.isActive !== current.isActive) || (data.role !== undefined && data.role !== current.role);
         const user = await prisma.user.update({
             where: { id },
-            data,
+            data: {
+                ...data,
+                ...(revokeSessions ? { sessionVersion: { increment: 1 } } : {})
+            },
             select: { id: true, fullName: true, email: true, username: true, role: true, isActive: true, phone: true, rut: true }
         });
 

@@ -9,7 +9,7 @@ const { prisma } = require('../dist/lib/prisma');
 const own = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
 const patient = '33333333-3333-4333-8333-333333333333';
-let server, base, calls;
+let server, base, calls, accountRole;
 const original = [];
 function mock(model, method, fn) {
     original.push([prisma[model], method, prisma[model][method]]);
@@ -19,6 +19,7 @@ function token(role = 'ADMIN', options = {}, payload = {}) {
     return jwt.sign({ userId: own, role, email: 'test@example.invalid', ...payload }, process.env.JWT_SECRET, options);
 }
 function request(path, { method = 'GET', auth, body } = {}) {
+    accountRole = auth ? jwt.decode(auth)?.role : 'ADMIN';
     return fetch(base + path, { method, headers: {
         ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {})
@@ -38,6 +39,8 @@ beforeEach(() => {
     prisma.$transaction = async callback => callback(prisma);
     prisma.$executeRaw = async () => 1;
     prisma.$queryRaw = async () => [];
+    mock('user', 'findUnique', async () => ({ id: own, role: accountRole, email: 'test@example.invalid', isActive: true, sessionVersion: 0 }));
+    mock('clinicalRecord', 'count', async () => 1);
     mock('appointment', 'findMany', async args => { calls.push(args); return []; });
     mock('appointment', 'findUnique', async () => ({ doctorId: own, date: new Date('2026-10-12T10:00:00.000Z'), duration: 20, status: 'SCHEDULED', isOverbooking: false }));
     mock('appointment', 'findFirst', async () => null);

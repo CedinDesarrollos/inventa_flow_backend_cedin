@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
+import type { AuthRequest } from '../middleware/auth.middleware';
 
 // ========== VALIDATION SCHEMAS ==========
 
@@ -398,90 +399,86 @@ export const getFinancialReport = async (req: Request, res: Response) => {
     }
 };
 
+function recurringPeriodRange(period: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || Number(period.slice(0, 4)) < 1900) {
+        throw new RangeError('Período inválido: use YYYY-MM');
+    }
+    const [year, month] = period.split('-').map(Number);
+    return { gte: new Date(Date.UTC(year!, month! - 1, 1)), lt: new Date(Date.UTC(year!, month!, 1)) };
+}
+
+function recurringExecutionWhere(id: string, period: string) {
+    return {
+        recurringParentId: id,
+        OR: [
+            { recurringPeriod: period },
+            // Preserve the original month of legacy payments without moving their payment date.
+            { recurringPeriod: null, date: recurringPeriodRange(period) }
+        ]
+    };
+}
+
 export const getMonthlyRecurringStatus = async (req: Request, res: Response) => {
     try {
-        const { month, year } = req.query;
-
-        if (!month || !year) {
-            return res.status(400).json({ message: 'Month and year are required' });
-        }
-
-        const targetMonth = parseInt(month as string);
-        const targetYear = parseInt(year as string);
-
-        // Define start and end of the target month
-        const startDate = new Date(targetYear, targetMonth - 1, 1);
-        const endDate = new Date(targetYear, targetMonth, 0, 23, 59, 59);
-
-        // 1. Get all active recurring templates
+        const { month, year } = z.object({
+            month: z.coerce.number().int().min(1).max(12),
+            year: z.coerce.number().int().min(1900).max(9999)
+        }).parse(req.query);
+        const period = `${year}-${String(month).padStart(2, '0')}`;
         const templates = await prisma.cost.findMany({
-            where: { isRecurring: true },
-            include: {
-                category: true,
-                branch: true
-            }
+            where: { isRecurring: true }, include: { category: true, branch: true }
         });
-
-        // 2. Build the status list
-        const statusList = await Promise.all(templates.map(async (template) => {
-            // Find if there is an execution for this template in this month
+        const statusList = await Promise.all(templates.map(async template => {
             const execution = await prisma.cost.findFirst({
-                where: {
-                    recurringParentId: template.id,
-                    date: {
-                        gte: startDate,
-                        lte: endDate
-                    }
-                }
+                where: recurringExecutionWhere(template.id, period), orderBy: { createdAt: 'asc' }
             });
-
-            return {
-                template,
-                status: execution ? 'PAID' : 'PENDING',
-                execution: execution || null
-            };
+            return { template, status: execution ? 'PAID' : 'PENDING', execution: execution || null };
         }));
-
         res.json(statusList);
     } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ message: 'Mes y año inválidos' });
         console.error('Get Monthly Recurring Status Error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
 
-export const payRecurringCost = async (req: Request, res: Response) => {
+export const payRecurringCost = async (req: AuthRequest, res: Response) => {
     try {
-        // ID of the TEMPLATE cost
-        const { id } = req.params;
-        const { date, amount } = req.body;
-        const userId = (req as any).user?.id;
-
-        // 1. Fetch the template
-        const template = await prisma.cost.findUnique({
-            where: { id: id as string }
-        });
-
-        if (!template) {
-            return res.status(404).json({ message: 'Recurring cost template not found' });
-        }
-
-        // 2. Create the execution record (Child)
-        const newCost = await prisma.cost.create({
-            data: {
-                categoryId: template.categoryId,
-                description: template.description, // Same description
-                amount: amount ? Number(amount) : Number(template.amount), // Allow override or use template
-                date: new Date(date), // Payment date
-                isRecurring: false, // Execution is NOT recurring itself
-                recurringParentId: template.id, // Link to parent
-                branchId: template.branchId,
-                notes: `Pago recurrente: ${template.recurrenceRule}`,
-                createdBy: userId
+        const id = z.string().uuid().parse(req.params.id);
+        const data = z.object({
+            date: z.string().datetime(),
+            period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
+            amount: z.number().finite().min(0.01).max(99999999.99).multipleOf(0.01).optional()
+        }).parse(req.body);
+        const period = data.period || data.date.slice(0, 7);
+        recurringPeriodRange(period);
+        const result = await prisma.$transaction(async tx => {
+            // Serialize all payments for this template, including checks against legacy rows.
+            await tx.$queryRaw`SELECT id FROM inventa_clinical_app.costs WHERE id = ${id} FOR UPDATE`;
+            const template = await tx.cost.findUnique({ where: { id } });
+            if (!template) return { ok: false, error: 'Costo recurrente no encontrado', status: 404 } as const;
+            if (!template.isRecurring) return { ok: false, error: 'El costo no es recurrente', status: 400 } as const;
+            if (await tx.cost.findFirst({ where: recurringExecutionWhere(id, period) })) {
+                return { ok: false, error: 'Este período ya tiene un pago registrado', status: 409 } as const;
             }
+            const cost = await tx.cost.create({
+                data: {
+                    categoryId: template.categoryId, description: template.description,
+                    amount: data.amount ?? template.amount, date: new Date(data.date),
+                    recurringPeriod: period, isRecurring: false, recurringParentId: id,
+                    branchId: template.branchId, notes: `Pago recurrente ${period}: ${template.recurrenceRule}`,
+                    createdBy: req.user?.userId
+                }
+            });
+            return { ok: true, cost } as const;
         });
-
-        res.status(201).json(newCost);
+        if (!result.ok) return res.status(result.status).json({ message: result.error });
+        res.status(201).json(result.cost);
     } catch (error) {
+        if (error instanceof z.ZodError || error instanceof RangeError) return res.status(400).json({ message: 'Datos de pago inválidos' });
+        if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') {
+            return res.status(409).json({ message: 'Este período ya tiene un pago registrado' });
+        }
         console.error('Pay Recurring Cost Error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
