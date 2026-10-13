@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
+import { clinicDateRange } from '../lib/clinic-dates';
+import { BillingError, lockBillingAppointment, lockBillingTransaction, syncAppointmentPayments } from '../services/transactions/appointment-payments';
 
 // Match PostgreSQL Decimal(10, 2) storage when calculating persisted balances.
 const storedMoney = (value: number) => new Prisma.Decimal(value).toDecimalPlaces(2);
@@ -70,28 +72,18 @@ export const getTransactions = async (req: Request, res: Response) => {
         if (doctorId) where.doctorId = String(doctorId);
         if (authorId) where.authorId = String(authorId);
 
-        if (startDate && endDate) {
-            // Input format: "2026-01-20" (local date)
-            // We need to create a date range that covers the entire day in the local timezone
-            // Then convert to UTC for database query
-            const startStr = String(startDate);
-            const endStr = String(endDate);
-
-            // Parse as local dates (not UTC)
-            const startLocal = new Date(startStr + 'T00:00:00');
-            const endLocal = new Date(endStr + 'T23:59:59.999');
-
-            where.createdAt = {
-                gte: startLocal,
-                lte: endLocal
-            };
-
-            console.log('Date filter (local):', {
-                start: startLocal.toISOString(),
-                end: endLocal.toISOString(),
-                startLocal: startLocal.toString(),
-                endLocal: endLocal.toString()
-            });
+        if (Boolean(startDate) !== Boolean(endDate)) throw new RangeError('Se requieren ambas fechas');
+        const dateRange = startDate && endDate ? clinicDateRange(String(startDate), String(endDate)) : undefined;
+        const cashFlow = req.query.cashFlow === 'true';
+        if (cashFlow && !dateRange) throw new RangeError('El cierre requiere un rango de fechas');
+        if (dateRange) {
+            if (cashFlow) {
+                delete where.authorId;
+                where.OR = [
+                    { payments: { some: { createdAt: dateRange, ...(authorId ? { createdBy: String(authorId) } : {}) } } },
+                    { createdAt: dateRange, payments: { none: {} }, ...(authorId ? { authorId: String(authorId) } : {}) }
+                ];
+            } else where.createdAt = dateRange;
         }
 
         console.log('Final where clause:', JSON.stringify(where, null, 2));
@@ -123,7 +115,7 @@ export const getTransactions = async (req: Request, res: Response) => {
                         service: true
                     }
                 },
-                payments: true
+                payments: { ...(cashFlow ? { where: { createdAt: dateRange, ...(authorId ? { createdBy: String(authorId) } : {}) } } : {}), include: { user: { select: { id: true, fullName: true, email: true } } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }
             },
             orderBy: {
                 createdAt: 'desc'
@@ -131,8 +123,20 @@ export const getTransactions = async (req: Request, res: Response) => {
         });
 
         console.log(`Found ${transactions.length} transactions`);
-        res.json(transactions);
+        if (cashFlow) {
+            res.json(transactions.flatMap(transaction => {
+                if (transaction.payments.length) return transaction.payments.map((payment, index) => ({
+                    ...transaction, reportRowId: `${transaction.id}:${payment.id}`, transactionCreatedAt: transaction.createdAt,
+                    createdAt: payment.createdAt, amountPaid: payment.amount, paymentMethod: payment.paymentMethod,
+                    author: payment.user || transaction.author, payments: [payment],
+                    savings: index === 0 && dateRange && transaction.createdAt >= dateRange.gte && transaction.createdAt < dateRange.lt ? transaction.savings : new Prisma.Decimal(0),
+                    exoneratedAmount: index === 0 && dateRange && transaction.createdAt >= dateRange.gte && transaction.createdAt < dateRange.lt ? transaction.exoneratedAmount : new Prisma.Decimal(0)
+                }));
+                return [transaction]; // Legacy transactions without receipt records.
+            }).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()));
+        } else res.json(transactions);
     } catch (error: any) {
+        if (error instanceof RangeError) return res.status(400).json({ error: error.message });
         console.error('Error fetching transactions:', error);
         console.error('Stack:', error.stack);
         res.status(500).json({ error: 'Error al obtener transacciones', details: error.message });
@@ -181,6 +185,14 @@ export const createTransaction = async (req: Request, res: Response) => {
 
         // Start transaction to ensure atomicity
         const result = await prisma.$transaction(async (tx) => {
+            let billingDoctorId = data.doctorId;
+            if (data.appointmentId) {
+                const appointment = await lockBillingAppointment(tx, data.appointmentId);
+                if (appointment.patientId !== data.patientId || (data.doctorId && appointment.doctorId !== data.doctorId)) {
+                    throw new BillingError(400, 'La cita no corresponde al paciente o profesional del cobro');
+                }
+                billingDoctorId = data.doctorId || appointment.doctorId || undefined;
+            }
             // Determine initial payment amount
             let initialPayment = storedMoney(data.initialPayment || 0);
             const splitPayments = (data.payments || []).map(payment => ({ ...payment, amount: storedMoney(payment.amount) }));
@@ -202,8 +214,9 @@ export const createTransaction = async (req: Request, res: Response) => {
             const transaction = await tx.transaction.create({
                 data: {
                     patientId: data.patientId,
+                    appointmentId: data.appointmentId,
                     authorId: userId,
-                    doctorId: data.doctorId,
+                    doctorId: billingDoctorId,
                     type: data.type,
                     paymentMethod: mainPaymentMethod,
                     paymentCode: data.paymentCode, // Keeps legacy single code if needed
@@ -284,17 +297,7 @@ export const createTransaction = async (req: Request, res: Response) => {
                 });
             }
 
-            // Update Appointment Payment Status if linked
-            if (data.appointmentId) {
-                const paymentStatus = isCompleted ? 'PAID' : 'PARTIAL';
-                await tx.appointment.update({
-                    where: { id: data.appointmentId },
-                    data: {
-                        paymentStatus: paymentStatus
-                    }
-                });
-                console.log(`Updated appointment ${data.appointmentId} payment status to ${paymentStatus}`);
-            }
+            if (data.appointmentId) await syncAppointmentPayments(tx, data.appointmentId);
 
             return transaction;
         });
@@ -305,6 +308,7 @@ export const createTransaction = async (req: Request, res: Response) => {
             console.error('Validation error:', error.issues);
             return res.status(400).json({ error: 'Validation error', details: error.issues });
         }
+        if (error instanceof BillingError) return res.status(error.status).json({ error: error.message });
         console.error('Error creating transaction:', error);
         res.status(500).json({ error: 'Error al crear transacción' });
     }
@@ -314,31 +318,59 @@ export const voidTransaction = async (req: Request, res: Response) => {
     try {
         const { id } = req.params as { id: string };
 
-        const transaction = await prisma.transaction.update({
-            where: { id },
-            data: {
-                status: 'VOIDED'
-            },
-            include: {
-                patient: true,
-                author: {
-                    select: {
-                        id: true,
-                        fullName: true,
-                        email: true
-                    }
-                },
-                items: {
-                    include: {
-                        service: true
+        const transaction = await prisma.$transaction(async tx => {
+            const current = await lockBillingTransaction(tx, id);
+            const voided = await tx.transaction.update({
+                where: { id },
+                data: { status: 'VOIDED' },
+                include: {
+                    patient: true,
+                    author: {
+                        select: {
+                            id: true,
+                            fullName: true,
+                            email: true
+                        }
+                    },
+                    items: {
+                        include: {
+                            service: true
+                        }
                     }
                 }
-            }
-        });
+            });
 
+            if (current.appointmentId) await syncAppointmentPayments(tx, current.appointmentId);
+            return voided;
+        });
         res.json(transaction);
     } catch (error) {
+        if (error instanceof BillingError) return res.status(error.status).json({ error: error.message });
         console.error(error);
         res.status(500).json({ error: 'Error al anular transacción' });
+    }
+};
+
+// Reconcile an explicitly identified historical account; never infer a link from patient/date.
+export const linkTransactionAppointment = async (req: Request, res: Response) => {
+    try {
+        const { appointmentId } = z.object({ appointmentId: z.string().uuid() }).parse(req.body);
+        const id = String(req.params.id);
+        const result = await prisma.$transaction(async tx => {
+            const appointment = await lockBillingAppointment(tx, appointmentId);
+            await tx.$queryRaw`SELECT id FROM inventa_clinical_app.transactions WHERE id = ${id} FOR UPDATE`;
+            const current = await tx.transaction.findUnique({ where: { id } });
+            if (!current) throw new BillingError(404, 'Transacción no encontrada');
+            if (current.appointmentId && current.appointmentId !== appointmentId) throw new BillingError(409, 'La transacción ya está vinculada a otra cita');
+            if (current.patientId !== appointment.patientId || (current.doctorId && current.doctorId !== appointment.doctorId)) throw new BillingError(400, 'La cita no corresponde al paciente o profesional del cobro');
+            const updated = await tx.transaction.update({ where: { id }, data: { appointmentId } });
+            await syncAppointmentPayments(tx, appointmentId);
+            return updated;
+        });
+        res.json(result);
+    } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ error: 'Cita inválida' });
+        if (error instanceof BillingError) return res.status(error.status).json({ error: error.message });
+        res.status(500).json({ error: 'Error al vincular la transacción' });
     }
 };

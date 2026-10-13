@@ -19,7 +19,10 @@ test('clinical workflow: real login, patient, appointment, partial/full payment,
         await admin.query(`CREATE DATABASE "${name}"`); created = true;
         const url = new URL(source); url.pathname = '/' + name;
         pool = new Pool({ connectionString: url.toString() });
-        await pool.query(readFileSync(path.join(__dirname, '../prisma/migrations/20261011000000_baseline/migration.sql'), 'utf8'));
+        for (const migration of require('node:fs').readdirSync(path.join(__dirname, '../prisma/migrations')).sort()) {
+            const file = path.join(__dirname, '../prisma/migrations', migration, 'migration.sql');
+            if (require('node:fs').existsSync(file)) await pool.query(readFileSync(file, 'utf8'));
+        }
         prisma = new PrismaClient({ adapter: new PrismaPg(pool) }); global.prisma = prisma;
         Object.assign(process.env, { JWT_SECRET: 'synthetic-workflow-secret', DATABASE_URL: url.toString(), UPLOAD_DIR: directory, PUBLIC_URL: 'https://public.example.invalid', CORS_ORIGIN: 'https://admin.cedin.com.py' });
         const { app } = require('../dist/app');
@@ -100,6 +103,8 @@ test('clinical workflow: real login, patient, appointment, partial/full payment,
             await prisma.transaction.delete({ where: { id: result.id } });
         }
         const transaction = await json(await request('/api/transactions', { method: 'POST', token: tokens.SECRETARY, body: transactionBody }), 201);
+        assert.equal(transaction.appointmentId, appointment.id);
+        assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).paymentStatus, 'PARTIAL');
         assert.equal(Number(transaction.balance), 75);
         assert.equal(transaction.status, 'PARTIAL');
         const route = `/api/transactions/${transaction.id}/payments`;
@@ -107,6 +112,7 @@ test('clinical workflow: real login, patient, appointment, partial/full payment,
         assert.equal((await request(route, { method: 'POST', token: tokens.SECRETARY, body: { amount: 76, paymentMethod: 'CASH' } })).status, 400);
         assert.equal(await prisma.payment.count(), 1);
         const paid = await json(await request(route, { method: 'POST', token: tokens.SECRETARY, body: { amount: 75, paymentMethod: 'CARD' } }), 200);
+        assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).paymentStatus, 'PAID');
         assert.equal(Number(paid.transaction.balance), 0); assert.equal(paid.transaction.status, 'COMPLETED');
         assert.equal((await json(await request(route, { token: tokens.SECRETARY }), 200)).length, 2);
         await json(await request('/api/reports/kpis?startDate=2026-10-01&endDate=2026-10-31', { token: tokens.ADMIN }), 200);

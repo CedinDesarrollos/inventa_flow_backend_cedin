@@ -1,41 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
-import { startOfDay, endOfDay } from 'date-fns';
-
-const TIMEZONE_OFFSET = 3; // UTC-3 (PYT)
-
-// Helper to get ranges using explicit UTC strings to avoid server timezone issues
-const getShiftRanges = (date: Date, shift: string) => {
-    // Format date as YYYY-MM-DD
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    const dateStr = `${yyyy}-${mm}-${dd}`;
-
-    // Paraguay is UTC-3.
-    // Daily Start (00:00 PYT) = 03:00 UTC
-    // Shift Cutoff (14:00 PYT) = 17:00 UTC
-    // Daily End (23:59 PYT) = 02:59 UTC (Next Day)
-
-    const startUTC = new Date(`${dateStr}T03:00:00.000Z`);
-    const cutoffUTC = new Date(`${dateStr}T17:00:00.000Z`);
-
-    // End is 03:00 UTC on Next Day
-    const endUTC = new Date(startUTC);
-    endUTC.setDate(endUTC.getDate() + 1);
-    endUTC.setUTCHours(2, 59, 59, 999); // Approx end of day tolerance
-
-    if (shift === 'MORNING') {
-        return { start: startUTC, end: cutoffUTC };
-    }
-
-    if (shift === 'AFTERNOON') {
-        return { start: cutoffUTC, end: endUTC };
-    }
-
-    // ALL_DAY
-    return { start: startUTC, end: endUTC };
-};
+import { cashCloseDateRange, clinicShiftRange } from '../lib/clinic-dates';
 
 export const getCashCloseStatus = async (req: Request, res: Response) => {
     try {
@@ -45,20 +10,9 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Date is required' });
         }
 
-        const queryDate = new Date(String(date));
-        const { start, end } = getShiftRanges(queryDate, String(shift));
+        const paymentRange = clinicShiftRange(String(date), String(shift));
 
-        // For existing close, we search by the DATE field (stored as date object).
-        // If we store it as 00:00 UTC, we should match closely?
-        // Actually CashClose has `date` field.
-        // It also has `shift` field string.
-        // We just need to match the day and shift.
-        // `queryDate` is likely 00:00 UTC. 
-        // We should search for close record created for this DAY.
-        // The Close record `date` usually stores the "Day" it represents.
-        // Let's use flexible day match (UTC day).
-        const dayStartUTC = startOfDay(queryDate);
-        const dayEndUTC = endOfDay(queryDate);
+        const dayRange = cashCloseDateRange(String(date));
 
         const bId = branchId ? String(branchId) : undefined;
         const shiftType = String(shift);
@@ -66,10 +20,7 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
         console.log('Querying existing close...');
         const existingClose = await prisma.cashClose.findFirst({
             where: {
-                date: {
-                    gte: dayStartUTC,
-                    lte: dayEndUTC
-                },
+                date: dayRange,
                 shift: shiftType,
                 ...(bId ? { branchId: bId } : {})
             },
@@ -84,10 +35,7 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
         // Using adjusted timezone ranges
         const payments = await prisma.payment.findMany({
             where: {
-                createdAt: {
-                    gte: start,
-                    lte: end
-                }
+                createdAt: paymentRange
             }
         });
 
@@ -107,6 +55,7 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
         });
 
     } catch (error: any) {
+        if (error instanceof RangeError) return res.status(400).json({ error: error.message });
         console.error('Error getting cash close:', error);
         console.error('Stack:', error.stack);
         res.status(500).json({ error: 'Error getting cash close status', details: error.message });
@@ -122,15 +71,15 @@ export const signCashClose = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Date and Role are required' });
         }
 
-        const queryDate = new Date(date);
-        const dayStart = startOfDay(queryDate);
-        const dayEnd = endOfDay(queryDate);
+        const dayRange = cashCloseDateRange(String(date));
+        clinicShiftRange(String(date), String(shift));
+        const queryDate = dayRange.gte;
         const bId = branchId || null;
         const shiftType = String(shift);
 
         let cashClose = await prisma.cashClose.findFirst({
             where: {
-                date: { gte: dayStart, lte: dayEnd },
+                date: dayRange,
                 shift: shiftType,
                 branchId: bId
             }
@@ -188,6 +137,7 @@ export const signCashClose = async (req: Request, res: Response) => {
 
     } catch (error) {
         console.error('Error signing cash close:', error);
+        if (error instanceof RangeError) return res.status(400).json({ error: error.message });
         res.status(500).json({ error: 'Error signing cash close' });
     }
 };

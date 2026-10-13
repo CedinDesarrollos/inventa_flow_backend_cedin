@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
+import { BillingError, lockBillingTransaction, syncAppointmentPayments } from '../services/transactions/appointment-payments';
 
 const paymentSchema = z.object({
     amount: z.number().positive(),
@@ -21,14 +23,7 @@ export const createPayment = async (req: Request, res: Response) => {
         const data = paymentSchema.parse(req.body);
 
         const result = await prisma.$transaction(async (tx) => {
-            // 1. Get transaction
-            const transaction = await tx.transaction.findUnique({
-                where: { id: String(transactionId) }
-            });
-
-            if (!transaction) {
-                throw new Error('Transaction not found');
-            }
+            const transaction = await lockBillingTransaction(tx, String(transactionId));
 
             if (transaction.status === 'COMPLETED') {
                 throw new Error('Transaction is already fully paid');
@@ -38,9 +33,11 @@ export const createPayment = async (req: Request, res: Response) => {
                 throw new Error('Cannot add payment to voided transaction');
             }
 
-            const currentBalance = Number(transaction.balance);
+            const amount = new Prisma.Decimal(data.amount).toDecimalPlaces(2);
+            if (amount.isZero()) throw new BillingError(400, 'El pago debe ser al menos 0.01');
+            const currentBalance = transaction.balance;
 
-            if (data.amount > currentBalance) {
+            if (new Prisma.Decimal(data.amount).gt(currentBalance) || amount.gt(currentBalance)) {
                 throw new Error(`Payment amount (${data.amount}) exceeds balance (${currentBalance})`);
             }
 
@@ -48,7 +45,7 @@ export const createPayment = async (req: Request, res: Response) => {
             const payment = await tx.payment.create({
                 data: {
                     transactionId: String(transactionId),
-                    amount: data.amount,
+                    amount,
                     paymentMethod: data.paymentMethod,
                     paymentCode: data.paymentCode,
                     notes: data.notes,
@@ -62,9 +59,9 @@ export const createPayment = async (req: Request, res: Response) => {
             });
 
             // 3. Update Transaction
-            const newAmountPaid = Number(transaction.amountPaid) + data.amount;
-            const newBalance = Number(transaction.total) - newAmountPaid;
-            const newStatus = newBalance === 0 ? 'COMPLETED' : 'PARTIAL';
+            const newAmountPaid = transaction.amountPaid.plus(amount);
+            const newBalance = transaction.total.minus(newAmountPaid);
+            const newStatus = newBalance.isZero() ? 'COMPLETED' : 'PARTIAL';
 
             const updatedTransaction = await tx.transaction.update({
                 where: { id: String(transactionId) },
@@ -84,12 +81,14 @@ export const createPayment = async (req: Request, res: Response) => {
                 }
             });
 
+            if (transaction.appointmentId) await syncAppointmentPayments(tx, transaction.appointmentId);
             return { payment, transaction: updatedTransaction };
         });
 
         res.json(result);
 
     } catch (error: any) {
+        if (error instanceof BillingError) return res.status(error.status).json({ message: error.message });
         console.error('Create Payment Error:', error);
 
         if (error instanceof z.ZodError) {
