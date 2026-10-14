@@ -13,7 +13,8 @@ const slotsQuerySchema = z.object({
     date: z.string().datetime(),
     professionalId: z.string(),
     duration: z.string().transform(Number).pipe(z.number().int().min(5)),
-    branchId: z.string().optional()
+    branchId: z.string().optional(),
+    preferredTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional()
 });
 
 export const getAvailableProfessionals = async (req: Request, res: Response) => {
@@ -52,7 +53,7 @@ export const getAvailableProfessionals = async (req: Request, res: Response) => 
 
 export const getAvailableSlots = async (req: Request, res: Response) => {
     try {
-        const { date, professionalId, duration, branchId } = slotsQuerySchema.parse(req.query);
+        const { date, professionalId, duration, branchId, preferredTime } = slotsQuerySchema.parse(req.query);
 
         let userId = professionalId;
         const potentialProf = await prisma.professional.findUnique({
@@ -73,6 +74,8 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
         // Default: 08:00 - 18:00
         let workStartHour = 8;
         let workEndHour = 18;
+        let workStartMinute = 0;
+        let workEndMinute = 0;
 
         const professional = await prisma.professional.findFirst({
             where: { userId: userId }
@@ -95,20 +98,22 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
                     if (scheduleConfig.start) {
                         const [h, m] = scheduleConfig.start.split(':').map(Number);
                         workStartHour = h;
+                        workStartMinute = m;
                     }
                     if (scheduleConfig.end) {
                         const [h, m] = scheduleConfig.end.split(':').map(Number);
                         workEndHour = h;
+                        workEndMinute = m;
                     }
                 }
             }
         }
 
         const scheduleStart = new Date(dayStart);
-        scheduleStart.setUTCHours(workStartHour, 0, 0, 0);
+        scheduleStart.setUTCHours(workStartHour, workStartMinute, 0, 0);
 
         const scheduleEnd = new Date(dayStart);
-        scheduleEnd.setUTCHours(workEndHour, 0, 0, 0);
+        scheduleEnd.setUTCHours(workEndHour, workEndMinute, 0, 0);
 
         // 2. Get existing appointments for this professional on this day
         const appointments = await prisma.$queryRaw<{ date: Date; duration: number }[]>`
@@ -142,6 +147,18 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
             cursor = new Date(cursor.getTime() + SLOT_STEP * 60000);
         }
 
+        // Calendar selections need not coincide with the ten-minute grid.
+        if (preferredTime) {
+            const preferred = new Date(dayStart);
+            const [hour, minute] = preferredTime.split(':').map(Number);
+            preferred.setUTCHours(hour, minute, 0, 0);
+            const end = appointmentEnd(preferred, duration);
+            if (preferred >= scheduleStart && end <= scheduleEnd && !appointments.some(appt =>
+                preferred < appointmentEnd(new Date(appt.date), appt.duration) && end > new Date(appt.date))) {
+                if (!slots.includes(preferred.toISOString())) slots.push(preferred.toISOString());
+                slots.sort();
+            }
+        }
         res.json(slots);
     } catch (error) {
         console.error('Error calculating slots:', error);
