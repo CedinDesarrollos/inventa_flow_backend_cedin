@@ -106,6 +106,14 @@ test('requested fixes: history paging, whole-day agenda, recurring period, revok
   assert.equal(overview.comparison.find(m=>m.month==='2026-10').inventory,25);
   const obligation=await json(await request('/costs/overview?startMonth=2025-02&endMonth=2025-02&basis=period',{token:auth}));
   assert.equal(obligation.summary.total,100);assert.equal(obligation.payments[0].category.name,'Synthetic category');
+  for(const basis of ['', '&basis=payment', '&basis=period']){
+   const past=await json(await request('/costs/overview?startMonth=2025-02&endMonth=2025-02&month=2025-02&detailOrigin=recurring'+basis,{token:auth}));
+   assert.equal(past.comparison[0].recurring,100);assert.equal(past.summary.total,100);assert.equal(past.detailTotal,100);
+   assert.equal(past.payments[0].id,payment.id);assert.equal(past.payments[0].date,paidAt);
+   const recordedMonth=paidAt.slice(0,7);
+   const current=await json(await request(`/costs/overview?startMonth=${recordedMonth}&endMonth=${recordedMonth}&origin=recurring${basis}`,{token:auth}));
+   assert.equal(current.summary.total,0);assert.equal(current.pagination.total,0);
+  }
   const lastDay=await json(await request('/costs?startDate=2026-10-31&endDate=2026-10-31&isRecurring=false',{token:auth}));
   assert.equal(lastDay.length,1);assert.equal(lastDay[0].id,purchased.id);
   assert.equal((await request('/costs/overview?startMonth=2025-01&endMonth=2026-10',{token:oldToken})).status,403);

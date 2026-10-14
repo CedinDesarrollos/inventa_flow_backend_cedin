@@ -20,7 +20,8 @@ export function expensePaymentDay(date: Date) {
 }
 
 export interface OverviewFilters {
-    startMonth: string; endMonth: string; basis: 'payment' | 'period'; origin?: ExpenseOrigin;
+    // Accept legacy clients' basis parameter, but recurring expenses always use their assigned period.
+    startMonth: string; endMonth: string; basis?: 'payment' | 'period'; origin?: ExpenseOrigin;
     categoryId?: string; conceptId?: string; search?: string; month?: string; detailOrigin?: ExpenseOrigin;
     page: number; pageSize: number;
 }
@@ -43,7 +44,7 @@ export function expenseOverview(costs: OverviewCost[], filters: OverviewFilters)
             amount: Number(cost.amount), date: cost.date.toISOString(), paymentDay, period, origin, conceptId, conceptName,
             recurringParentId: cost.recurringParentId, recurringPeriod: cost.recurringPeriod,
             branch: cost.branch, branchId: cost.branchId, receiptUrl: cost.receiptUrl,
-            reportMonth: filters.basis === 'period' ? period : paymentDay.slice(0, 7)
+            reportMonth: period
         };
     });
     const rows = allRows.filter(row => row.reportMonth >= filters.startMonth && row.reportMonth <= filters.endMonth);

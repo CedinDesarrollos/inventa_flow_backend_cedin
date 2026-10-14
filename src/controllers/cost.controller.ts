@@ -124,7 +124,7 @@ export const getExpenseOverview = async (req: Request, res: Response) => {
         const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).refine(value => Number(value.slice(0,4)) >= 1900);
         const origin = z.enum(['individual', 'recurring', 'inventory']);
         const filters = z.object({
-            startMonth: month, endMonth: month, basis: z.enum(['payment', 'period']).default('payment'),
+            startMonth: month, endMonth: month, basis: z.enum(['payment', 'period']).default('period'),
             categoryId: z.string().uuid().optional(), conceptId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
             branchId: z.string().uuid().optional(), includeUnassigned: z.enum(['true', 'false']).default('true'), origin: origin.optional(), search: z.string().max(200).optional(),
             month: month.optional(), detailOrigin: origin.optional(),
