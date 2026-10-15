@@ -4,6 +4,28 @@ Los filtros YYYY-MM-DD de transacciones y el cierre usan America/Asuncion, con i
 
 `GET /api/transactions?cashFlow=true&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` devuelve una fila por recibo del rango, con reportRowId, su hora, importe, método y cajero. Incluye los abonos a ventas de días anteriores. El filtro authorId identifica al autor del recibo; la vista habitual sin cashFlow conserva el filtro de creación de la transacción. El fallback para registros históricos sin recibos se conserva por fecha de creación. Los descuentos/coberturas de una venta se muestran una sola vez en su día de creación.
 
+## Validación de totales al firmar
+
+La consulta de cierre y la firma comparten el cálculo de recibos por día y turno de Asunción. Se suman importes decimales en el servidor y se guarda ese resultado en el corte inicial y en cada nueva firma, dentro de una transacción. La suma y la lista de recibos provienen de una misma lectura.
+
+Los `totals` del cliente representan los importes que el usuario revisó, no los importes a guardar. Si difieren en total, efectivo, tarjeta o seguro, la API responde 409 con `code: CASH_CLOSE_TOTALS_CHANGED` y los `liveTotals` actuales, sin guardar cambios. El modal vuelve a consultar los datos, conserva la observación y solicita revisar y firmar nuevamente. Importes mal formados reciben 400. Por compatibilidad, omitir `totals` o enviarlos como null permite firmar usando exclusivamente los importes calculados en el servidor.
+
+Este cambio conserva el alcance actual del popup (recibos por fecha/turno), los métodos de pago y las firmas progresivas. La unificación de filtros con el informe y los registros históricos sin recibos son tareas separadas. No modifica cierres históricos ni requiere migraciones.
+
+## Identidad y rol de firma
+
+La firma toma el ID de la sesión autenticada y consulta el nombre y rol de esa cuenta en el servidor, comprobando que siga activa. El campo `role` del cuerpo se ignora y ya no es obligatorio; los clientes actuales pueden seguir enviándolo. Las etiquetas guardadas conservan el formato existente: SECRETARY → CAJERO, PROFESSIONAL → MEDICO, ADMIN → ADMIN y DEVELOPER → DEVELOPER. Un rol distinto o desactualizado en el navegador o en el token no puede convertir una firma de Secretaría en una firma de Administración. Las firmas históricas se conservan sin reescritura.
+
+## Firmas únicas y cortes conservados
+
+Una transacción adquiere primero un lock de PostgreSQL por fecha civil, turno y sede (incluida la sede nula). El aislamiento ReadCommitted permite que cada solicitud, después de esperar el lock, lea las firmas ya confirmadas por la anterior. Así se serializan tanto la creación inicial como el agregado de firmas entre procesos del servidor.
+
+Una segunda firma del mismo usuario devuelve 409 con `CASH_CLOSE_ALREADY_SIGNED`, sin cambios, incluso si cambió su rol o llegaron nuevos cobros. El modal actualiza el estado y muestra la firma existente. Otros usuarios pueden seguir agregando su firma. Un borrador antiguo sin firmas recibe el corte inicial al firmarse por primera vez. Los totales generales, closedAt y closedBy del corte inicial se conservan; agregar una firma solo agrega su entrada al historial.
+
+Cada firma nueva guarda `paymentSnapshot` con ID del recibo, cuenta, importe decimal, método y fecha, además de sus totales. Esto conserva la evidencia aunque cambie después el registro original. `GET /cash-close` mantiene los totales actuales y agrega `subsequentPayments` (cantidad e importes de recibos no incluidos en la última firma), incluso cuando se cargaron con fecha anterior. No se deduce pertenencia para firmas históricas sin esta evidencia: en ese caso el campo es null. El informe y PDF usan pertenencia por recibo para firmas nuevas y conservan la convención por hora para las históricas.
+
+No hay migraciones ni reescritura histórica. Consulta y firma seleccionan el mismo corte por fecha, turno y sede; si ya existían filas duplicadas se elige consistentemente la primera, sin borrar registros. Los locks protegen a las versiones nuevas del endpoint; publicar las versiones anteriores de totales y rol antes de esta corrección.
+
 ## Relación de cobros y citas
 
 La migración 20261013010000_transaction_appointment agrega appointment_id nullable, índice y FK con ON DELETE SET NULL. No cambia la baseline ni elimina filas. Los registros anteriores quedan NULL; no se infieren relaciones por paciente o fechas. Se probó la actualización con datos previos, la instalación desde cero, la repetición del SQL aditivo y la preservación de la baseline verificada.
