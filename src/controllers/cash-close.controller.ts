@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
+import { cashCloseTotals, sameCashTotals, validCashTotals } from '../services/cash-close-totals';
 import { prisma } from '../lib/prisma';
 import { cashCloseDateRange, clinicShiftRange } from '../lib/clinic-dates';
 
@@ -10,7 +12,7 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Date is required' });
         }
 
-        const paymentRange = clinicShiftRange(String(date), String(shift));
+        clinicShiftRange(String(date), String(shift));
 
         const dayRange = cashCloseDateRange(String(date));
 
@@ -31,23 +33,7 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
             }
         });
 
-        // 2. Calculate Live Totals from Payments
-        // Using adjusted timezone ranges
-        const payments = await prisma.payment.findMany({
-            where: {
-                createdAt: paymentRange
-            }
-        });
-
-        const liveTotals = payments.reduce((acc: { total: number; cash: number; card: number; insurance: number }, p) => {
-            const amount = Number(p.amount);
-            acc.total += amount;
-            if (p.paymentMethod === 'CASH') acc.cash += amount;
-            else if (p.paymentMethod === 'CARD') acc.card += amount;
-            else if (p.paymentMethod === 'INSURANCE') acc.insurance += amount;
-            return acc;
-        }, { total: 0, cash: 0, card: 0, insurance: 0 });
-
+        const liveTotals = await cashCloseTotals(prisma, String(date), shiftType);
 
         res.json({
             close: existingClose,
@@ -77,63 +63,83 @@ export const signCashClose = async (req: Request, res: Response) => {
         const bId = branchId || null;
         const shiftType = String(shift);
 
-        let cashClose = await prisma.cashClose.findFirst({
-            where: {
-                date: dayRange,
-                shift: shiftType,
-                branchId: bId
-            }
-        });
-
-        const user = await prisma.user.findUnique({ where: { id: userId } });
-        const signature = {
-            role,
-            userId,
-            name: user?.fullName || 'Usuario',
-            timestamp: new Date().toISOString(),
-            note: note || '',
-            snapshot: {
-                total: totals?.total || 0,
-                cash: totals?.cash || 0,
-                card: totals?.card || 0,
-                insurance: totals?.insurance || 0
-            }
-        };
-
-        if (!cashClose) {
-            // Create new Close Snapshot
-            cashClose = await prisma.cashClose.create({
-                data: {
-                    date: queryDate,
-                    branchId: bId,
-                    shift: shiftType,
-                    closedBy: userId,
-                    totalAmount: totals?.total || 0,
-                    totalCash: totals?.cash || 0,
-                    totalCard: totals?.card || 0,
-                    totalInsurance: totals?.insurance || 0,
-                    signatures: [signature] as any
-                }
-            });
-        } else {
-            // Append signature AND Update latest totals (Progressive Close)
-            const currentSignatures = (cashClose.signatures as any[]) || [];
-            const newSignatures = [...currentSignatures, signature];
-
-            cashClose = await prisma.cashClose.update({
-                where: { id: cashClose.id },
-                data: {
-                    signatures: newSignatures as any,
-                    // Always update totals to the latest snapshot provided by the signer
-                    totalAmount: totals?.total || 0,
-                    totalCash: totals?.cash || 0,
-                    totalCard: totals?.card || 0,
-                    totalInsurance: totals?.insurance || 0
-                }
-            });
+        if (totals != null && !validCashTotals(totals)) {
+            return res.status(400).json({ error: 'Totales inválidos' });
         }
 
-        res.json(cashClose);
+        const result = await prisma.$transaction(async (db) => {
+            const calculatedTotals = await cashCloseTotals(db, String(date), shiftType);
+            if (totals != null && !sameCashTotals(totals, calculatedTotals)) {
+                return { conflict: true as const, liveTotals: calculatedTotals };
+            }
+
+            let cashClose = await db.cashClose.findFirst({
+                where: {
+                    date: dayRange,
+                    shift: shiftType,
+                    branchId: bId
+                }
+            });
+
+            const user = await db.user.findUnique({ where: { id: userId } });
+            const signature = {
+                role,
+                userId,
+                name: user?.fullName || 'Usuario',
+                timestamp: new Date().toISOString(),
+                note: note || '',
+                snapshot: {
+                    total: calculatedTotals.total,
+                    cash: calculatedTotals.cash,
+                    card: calculatedTotals.card,
+                    insurance: calculatedTotals.insurance
+                }
+            };
+
+            if (!cashClose) {
+                // Create new Close Snapshot
+                cashClose = await db.cashClose.create({
+                    data: {
+                        date: queryDate,
+                        branchId: bId,
+                        shift: shiftType,
+                        closedBy: userId,
+                        totalAmount: calculatedTotals.total,
+                        totalCash: calculatedTotals.cash,
+                        totalCard: calculatedTotals.card,
+                        totalInsurance: calculatedTotals.insurance,
+                        signatures: [signature] as any
+                    }
+                });
+            } else {
+                // Append signature AND Update latest totals (Progressive Close)
+                const currentSignatures = (cashClose.signatures as any[]) || [];
+                const newSignatures = [...currentSignatures, signature];
+
+                cashClose = await db.cashClose.update({
+                    where: { id: cashClose.id },
+                    data: {
+                        signatures: newSignatures as any,
+                        // Preserve progressive closing using the server-calculated snapshot
+                        totalAmount: calculatedTotals.total,
+                        totalCash: calculatedTotals.cash,
+                        totalCard: calculatedTotals.card,
+                        totalInsurance: calculatedTotals.insurance
+                    }
+                });
+            }
+
+            return { conflict: false as const, cashClose };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+
+        if (result.conflict) {
+            return res.status(409).json({
+                code: 'CASH_CLOSE_TOTALS_CHANGED',
+                error: 'Los importes cambiaron. Revise los totales actualizados antes de firmar.',
+                liveTotals: result.liveTotals
+            });
+        }
+        res.json(result.cashClose);
 
     } catch (error) {
         console.error('Error signing cash close:', error);

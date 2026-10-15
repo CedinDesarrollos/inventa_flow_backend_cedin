@@ -4,6 +4,14 @@ Los filtros YYYY-MM-DD de transacciones y el cierre usan America/Asuncion, con i
 
 `GET /api/transactions?cashFlow=true&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` devuelve una fila por recibo del rango, con reportRowId, su hora, importe, método y cajero. Incluye los abonos a ventas de días anteriores. El filtro authorId identifica al autor del recibo; la vista habitual sin cashFlow conserva el filtro de creación de la transacción. El fallback para registros históricos sin recibos se conserva por fecha de creación. Los descuentos/coberturas de una venta se muestran una sola vez en su día de creación.
 
+## Validación de totales al firmar
+
+La consulta de cierre y la firma comparten el cálculo de recibos por día y turno de Asunción. Se suman importes decimales en el servidor y se guarda ese resultado tanto en el cierre como en la nueva firma, dentro de una transacción con aislamiento RepeatableRead.
+
+Los `totals` del cliente representan los importes que el usuario revisó, no los importes a guardar. Si difieren en total, efectivo, tarjeta o seguro, la API responde 409 con `code: CASH_CLOSE_TOTALS_CHANGED` y los `liveTotals` actuales, sin guardar cambios. El modal vuelve a consultar los datos, conserva la observación y solicita revisar y firmar nuevamente. Importes mal formados reciben 400. Por compatibilidad, omitir `totals` o enviarlos como null permite firmar usando exclusivamente los importes calculados en el servidor.
+
+Este cambio conserva el alcance actual del popup (recibos por fecha/turno), los métodos de pago y las firmas progresivas. La unificación de filtros con el informe, los registros históricos sin recibos, la validación del rol y las firmas duplicadas son tareas separadas. No modifica cierres históricos ni requiere migraciones.
+
 ## Relación de cobros y citas
 
 La migración 20261013010000_transaction_appointment agrega appointment_id nullable, índice y FK con ON DELETE SET NULL. No cambia la baseline ni elimina filas. Los registros anteriores quedan NULL; no se infieren relaciones por paciente o fechas. Se probó la actualización con datos previos, la instalación desde cero, la repetición del SQL aditivo y la preservación de la baseline verificada.
