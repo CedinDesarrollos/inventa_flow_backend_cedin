@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { cashCloseTotals, sameCashTotals, validCashTotals } from '../services/cash-close-totals';
 import { prisma } from '../lib/prisma';
 import { cashCloseDateRange, clinicShiftRange } from '../lib/clinic-dates';
+import { AuthRequest } from '../middleware/auth.middleware';
 
 export const getCashCloseStatus = async (req: Request, res: Response) => {
     try {
@@ -48,13 +49,16 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
     }
 };
 
-export const signCashClose = async (req: Request, res: Response) => {
+export const signCashClose = async (req: AuthRequest, res: Response) => {
     try {
-        const userId = (req as any).user?.userId;
-        const { date, branchId, note, role, totals, shift = 'ALL_DAY' } = req.body;
+        const userId = req.user?.userId;
+        const { date, branchId, note, totals, shift = 'ALL_DAY' } = req.body;
 
-        if (!date || !role) {
-            return res.status(400).json({ error: 'Date and Role are required' });
+        if (!userId) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        if (!date) {
+            return res.status(400).json({ error: 'Date is required' });
         }
 
         const dayRange = cashCloseDateRange(String(date));
@@ -68,9 +72,16 @@ export const signCashClose = async (req: Request, res: Response) => {
         }
 
         const result = await prisma.$transaction(async (db) => {
+            const user = await db.user.findUnique({
+                where: { id: userId },
+                select: { fullName: true, role: true, isActive: true }
+            });
+            if (!user?.isActive) {
+                return { status: 'UNAUTHORIZED' as const };
+            }
             const calculatedTotals = await cashCloseTotals(db, String(date), shiftType);
             if (totals != null && !sameCashTotals(totals, calculatedTotals)) {
-                return { conflict: true as const, liveTotals: calculatedTotals };
+                return { status: 'TOTALS_CHANGED' as const, liveTotals: calculatedTotals };
             }
 
             let cashClose = await db.cashClose.findFirst({
@@ -81,11 +92,11 @@ export const signCashClose = async (req: Request, res: Response) => {
                 }
             });
 
-            const user = await db.user.findUnique({ where: { id: userId } });
             const signature = {
-                role,
+                // Preserve existing display labels; never accept the client's claimed role.
+                role: user.role === 'SECRETARY' ? 'CAJERO' : user.role === 'PROFESSIONAL' ? 'MEDICO' : user.role,
                 userId,
-                name: user?.fullName || 'Usuario',
+                name: user.fullName,
                 timestamp: new Date().toISOString(),
                 note: note || '',
                 snapshot: {
@@ -129,10 +140,13 @@ export const signCashClose = async (req: Request, res: Response) => {
                 });
             }
 
-            return { conflict: false as const, cashClose };
+            return { status: 'SIGNED' as const, cashClose };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
-        if (result.conflict) {
+        if (result.status === 'UNAUTHORIZED') {
+            return res.status(401).json({ error: 'La cuenta está inactiva o ya no existe' });
+        }
+        if (result.status === 'TOTALS_CHANGED') {
             return res.status(409).json({
                 code: 'CASH_CLOSE_TOTALS_CHANGED',
                 error: 'Los importes cambiaron. Revise los totales actualizados antes de firmar.',

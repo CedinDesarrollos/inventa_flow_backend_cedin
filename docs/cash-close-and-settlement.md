@@ -10,7 +10,11 @@ La consulta de cierre y la firma comparten el cálculo de recibos por día y tur
 
 Los `totals` del cliente representan los importes que el usuario revisó, no los importes a guardar. Si difieren en total, efectivo, tarjeta o seguro, la API responde 409 con `code: CASH_CLOSE_TOTALS_CHANGED` y los `liveTotals` actuales, sin guardar cambios. El modal vuelve a consultar los datos, conserva la observación y solicita revisar y firmar nuevamente. Importes mal formados reciben 400. Por compatibilidad, omitir `totals` o enviarlos como null permite firmar usando exclusivamente los importes calculados en el servidor.
 
-Este cambio conserva el alcance actual del popup (recibos por fecha/turno), los métodos de pago y las firmas progresivas. La unificación de filtros con el informe, los registros históricos sin recibos, la validación del rol y las firmas duplicadas son tareas separadas. No modifica cierres históricos ni requiere migraciones.
+Este cambio conserva el alcance actual del popup (recibos por fecha/turno), los métodos de pago y las firmas progresivas. La unificación de filtros con el informe, los registros históricos sin recibos y las firmas duplicadas son tareas separadas. No modifica cierres históricos ni requiere migraciones.
+
+## Identidad y rol de firma
+
+La firma toma el ID de la sesión autenticada y consulta el nombre y rol de esa cuenta en el servidor, comprobando que siga activa. El campo `role` del cuerpo se ignora y ya no es obligatorio; los clientes actuales pueden seguir enviándolo. Las etiquetas guardadas conservan el formato existente: SECRETARY → CAJERO, PROFESSIONAL → MEDICO, ADMIN → ADMIN y DEVELOPER → DEVELOPER. Un rol distinto o desactualizado en el navegador o en el token no puede convertir una firma de Secretaría en una firma de Administración. Las firmas históricas se conservan sin reescritura.
 
 ## Relación de cobros y citas
 

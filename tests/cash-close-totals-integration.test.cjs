@@ -16,7 +16,7 @@ test('expected cash totals reject malformed amounts and compare at currency prec
     assert.equal(sameCashTotals({ ...totals, cash: 0.29 }, totals), false);
 });
 
-test('cash close signs server totals, rejects stale/tampered snapshots, and preserves progressive closing', { skip: !process.env.TEST_DATABASE_URL }, async () => {
+test('cash close validates totals and authenticated signer while preserving progressive closing', { skip: !process.env.TEST_DATABASE_URL }, async (t) => {
     const source = new URL(process.env.TEST_DATABASE_URL);
     assert(['127.0.0.1', 'localhost', '[::1]'].includes(source.hostname));
     const name = `inventa_cash_totals_${process.pid}`;
@@ -37,8 +37,8 @@ test('cash close signs server totals, rejects stale/tampered snapshots, and pres
         const base = `http://127.0.0.1:${server.address().port}`;
         const user = await prisma.user.create({ data: { role: 'SECRETARY', email: 'cash@example.invalid', fullName: 'Synthetic Cashier', passwordHash: 'synthetic-only' } });
         const token = jwt.sign({ role: user.role, userId: user.id }, process.env.JWT_SECRET);
-        async function request(route, body) {
-            return fetch(base + route, { method: body ? 'POST' : 'GET', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+        async function request(route, body, authToken = token) {
+            return fetch(base + route, { method: body ? 'POST' : 'GET', headers: { Authorization: 'Bearer ' + authToken, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
         }
         async function json(response, expected = 200) { assert.equal(response.status, expected, await response.clone().text()); return response.json(); }
         const patient = await prisma.patient.create({ data: { firstName: 'Synthetic', lastName: 'Cash', identifier: 'cash-totals-qa' } });
@@ -70,6 +70,7 @@ test('cash close signs server totals, rejects stale/tampered snapshots, and pres
         for (const totals of [{}, { ...all, cash: -1 }, { ...all, card: '20' }]) await json(await sign({ totals }), 400);
         for (const body of [{ date: '2026-02-30' }, { shift: 'INVALID' }]) await json(await sign(body), 400);
         const close = await json(await sign({ totals: all }));
+        assert.equal(close.signatures[0].role, 'CAJERO');
         assert.deepEqual(close.signatures[0].snapshot, all);
         assert.equal(Number(close.totalAmount), all.total);
         assert.equal(Number(close.totalCash), all.cash);
@@ -93,6 +94,48 @@ test('cash close signs server totals, rejects stale/tampered snapshots, and pres
         }
         const empty = await json(await sign({ date: '2026-10-15', totals: null }));
         assert.deepEqual(empty.signatures[0].snapshot, { total: 0, cash: 0, card: 0, insurance: 0 });
+
+        for (const [role, label] of [['SECRETARY', 'CAJERO'], ['PROFESSIONAL', 'MEDICO'], ['ADMIN', 'ADMIN'], ['DEVELOPER', 'DEVELOPER']]) {
+            await t.test(`${role} signs only with its current account identity, even when the client claims another role`, async () => {
+                const signer = await prisma.user.create({ data: { role, email: `${role}@cash.invalid`, fullName: `Synthetic ${role}`, passwordHash: 'synthetic-only' } });
+                // Simulate a valid but outdated token that still claims ADMIN.
+                const signerToken = jwt.sign({ role: 'ADMIN', userId: signer.id }, process.env.JWT_SECRET);
+                const signed = await json(await request('/api/cash-close/sign', {
+                    date: '2026-10-16', role: role === 'ADMIN' ? 'CAJERO' : 'ADMIN',
+                    userId: user.id, name: 'Forged identity', note: 'Role check'
+                }, signerToken));
+                const signature = signed.signatures.at(-1);
+                assert.equal(signature.role, label);
+                assert.equal(signature.userId, signer.id);
+                assert.equal(signature.name, signer.fullName);
+                const saved = await prisma.cashClose.findUnique({ where: { id: signed.id } });
+                assert.deepEqual(saved.signatures.at(-1), signature);
+            });
+        }
+        await t.test('client role is optional and arbitrary payloads cannot change the signer role', async () => {
+            for (const extra of [{}, { role: null }, { role: { ADMIN: true } }]) {
+                const signed = await json(await request('/api/cash-close/sign', { date: '2026-10-17', note: 'Real role only', ...extra }));
+                assert.equal(signed.signatures.at(-1).role, 'CAJERO');
+                assert.equal(signed.signatures.at(-1).userId, user.id);
+            }
+            // A changed account role takes effect even with the old token and client role.
+            await prisma.user.update({ where: { id: user.id }, data: { role: 'PROFESSIONAL' } });
+            const signed = await json(await sign({ date: '2026-10-17', role: 'ADMIN' }));
+            assert.equal(signed.signatures.at(-1).role, 'MEDICO');
+            assert.equal(signed.signatures[0].role, 'CAJERO');
+        });
+        await t.test('unauthenticated, inactive and deleted accounts cannot add signatures', async () => {
+            const count = await prisma.cashClose.count();
+            const body = { date: '2026-10-18', role: 'ADMIN', note: 'Must not save' };
+            await json(await request('/api/cash-close/sign', body, ''), 401);
+            await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
+            await json(await request('/api/cash-close/sign', body), 401);
+            const missing = await prisma.user.create({ data: { role: 'ADMIN', email: 'deleted@cash.invalid', fullName: 'Deleted', passwordHash: 'synthetic-only' } });
+            const missingToken = jwt.sign({ role: 'ADMIN', userId: missing.id }, process.env.JWT_SECRET);
+            await prisma.user.delete({ where: { id: missing.id } });
+            await json(await request('/api/cash-close/sign', body, missingToken), 401);
+            assert.equal(await prisma.cashClose.count(), count);
+        });
     } finally {
         if (server) await new Promise(resolve => server.close(resolve));
         if (prisma) await prisma.$disconnect(); if (pool) await pool.end(); delete global.prisma;
