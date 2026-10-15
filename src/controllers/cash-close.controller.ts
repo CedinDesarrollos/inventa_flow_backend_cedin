@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
-import { cashCloseTotals, sameCashTotals, validCashTotals } from '../services/cash-close-totals';
+import { cashCloseSnapshot, sameCashTotals, sumCashPayments, validCashTotals } from '../services/cash-close-totals';
 import { prisma } from '../lib/prisma';
 import { cashCloseDateRange, clinicShiftRange } from '../lib/clinic-dates';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -25,8 +25,9 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
             where: {
                 date: dayRange,
                 shift: shiftType,
-                ...(bId ? { branchId: bId } : {})
+                branchId: bId || null
             },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             include: {
                 closer: {
                     select: { fullName: true }
@@ -34,11 +35,17 @@ export const getCashCloseStatus = async (req: Request, res: Response) => {
             }
         });
 
-        const liveTotals = await cashCloseTotals(prisma, String(date), shiftType);
+        const snapshot = await cashCloseSnapshot(prisma, String(date), shiftType);
+        const signatures = Array.isArray(existingClose?.signatures) ? existingClose.signatures : [];
+        const latest = signatures[signatures.length - 1] as { paymentSnapshot?: { id: string }[] } | undefined;
+        // Do not invent receipt membership for historical signatures without evidence.
+        const included = Array.isArray(latest?.paymentSnapshot) ? new Set(latest.paymentSnapshot.map(payment => payment.id)) : null;
+        const subsequent = included ? snapshot.payments.filter(payment => !included.has(payment.id)) : null;
 
         res.json({
             close: existingClose,
-            liveTotals
+            liveTotals: snapshot.totals,
+            subsequentPayments: subsequent ? { count: subsequent.length, totals: sumCashPayments(subsequent) } : null
         });
 
     } catch (error: any) {
@@ -72,6 +79,9 @@ export const signCashClose = async (req: AuthRequest, res: Response) => {
         }
 
         const result = await prisma.$transaction(async (db) => {
+            const scope = JSON.stringify([queryDate.toISOString(), shiftType, bId]);
+            await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scope}, 0))::text`;
+
             const user = await db.user.findUnique({
                 where: { id: userId },
                 select: { fullName: true, role: true, isActive: true }
@@ -79,18 +89,19 @@ export const signCashClose = async (req: AuthRequest, res: Response) => {
             if (!user?.isActive) {
                 return { status: 'UNAUTHORIZED' as const };
             }
-            const calculatedTotals = await cashCloseTotals(db, String(date), shiftType);
+            const cashClose = await db.cashClose.findFirst({
+                where: { date: dayRange, shift: shiftType, branchId: bId },
+                orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+            });
+            const currentSignatures = Array.isArray(cashClose?.signatures) ? cashClose.signatures : [];
+            if (currentSignatures.some(signature => (signature as { userId?: string } | null)?.userId === userId)) {
+                return { status: 'ALREADY_SIGNED' as const };
+            }
+            const snapshot = await cashCloseSnapshot(db, String(date), shiftType);
+            const calculatedTotals = snapshot.totals;
             if (totals != null && !sameCashTotals(totals, calculatedTotals)) {
                 return { status: 'TOTALS_CHANGED' as const, liveTotals: calculatedTotals };
             }
-
-            let cashClose = await db.cashClose.findFirst({
-                where: {
-                    date: dayRange,
-                    shift: shiftType,
-                    branchId: bId
-                }
-            });
 
             const signature = {
                 // Preserve existing display labels; never accept the client's claimed role.
@@ -99,6 +110,7 @@ export const signCashClose = async (req: AuthRequest, res: Response) => {
                 name: user.fullName,
                 timestamp: new Date().toISOString(),
                 note: note || '',
+                paymentSnapshot: snapshot.payments,
                 snapshot: {
                     total: calculatedTotals.total,
                     cash: calculatedTotals.cash,
@@ -108,43 +120,37 @@ export const signCashClose = async (req: AuthRequest, res: Response) => {
             };
 
             if (!cashClose) {
-                // Create new Close Snapshot
-                cashClose = await db.cashClose.create({
+                const createdClose = await db.cashClose.create({
                     data: {
-                        date: queryDate,
-                        branchId: bId,
-                        shift: shiftType,
-                        closedBy: userId,
-                        totalAmount: calculatedTotals.total,
-                        totalCash: calculatedTotals.cash,
-                        totalCard: calculatedTotals.card,
-                        totalInsurance: calculatedTotals.insurance,
+                        date: queryDate, branchId: bId, shift: shiftType, closedBy: userId,
+                        totalAmount: calculatedTotals.total, totalCash: calculatedTotals.cash,
+                        totalCard: calculatedTotals.card, totalInsurance: calculatedTotals.insurance,
                         signatures: [signature] as any
                     }
                 });
-            } else {
-                // Append signature AND Update latest totals (Progressive Close)
-                const currentSignatures = (cashClose.signatures as any[]) || [];
-                const newSignatures = [...currentSignatures, signature];
-
-                cashClose = await db.cashClose.update({
-                    where: { id: cashClose.id },
-                    data: {
-                        signatures: newSignatures as any,
-                        // Preserve progressive closing using the server-calculated snapshot
-                        totalAmount: calculatedTotals.total,
-                        totalCash: calculatedTotals.cash,
-                        totalCard: calculatedTotals.card,
-                        totalInsurance: calculatedTotals.insurance
-                    }
-                });
+                return { status: 'SIGNED' as const, cashClose: createdClose };
             }
-
-            return { status: 'SIGNED' as const, cashClose };
-        }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+            // The initial cut and all preceding signatures are immutable.
+            const updatedClose = await db.cashClose.update({
+                where: { id: cashClose.id },
+                data: {
+                    signatures: [...currentSignatures, signature] as any,
+                    // A legacy unsigned draft does not yet contain a protected cut.
+                    ...(currentSignatures.length === 0 ? {
+                        totalAmount: calculatedTotals.total, totalCash: calculatedTotals.cash,
+                        totalCard: calculatedTotals.card, totalInsurance: calculatedTotals.insurance,
+                        closedBy: userId, closedAt: new Date(signature.timestamp)
+                    } : {})
+                }
+            });
+            return { status: 'SIGNED' as const, cashClose: updatedClose };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 
         if (result.status === 'UNAUTHORIZED') {
             return res.status(401).json({ error: 'La cuenta está inactiva o ya no existe' });
+        }
+        if (result.status === 'ALREADY_SIGNED') {
+            return res.status(409).json({ code: 'CASH_CLOSE_ALREADY_SIGNED', error: 'Ya has firmado este cierre.' });
         }
         if (result.status === 'TOTALS_CHANGED') {
             return res.status(409).json({

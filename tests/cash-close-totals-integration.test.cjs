@@ -16,7 +16,7 @@ test('expected cash totals reject malformed amounts and compare at currency prec
     assert.equal(sameCashTotals({ ...totals, cash: 0.29 }, totals), false);
 });
 
-test('cash close validates totals and authenticated signer while preserving progressive closing', { skip: !process.env.TEST_DATABASE_URL }, async (t) => {
+test('cash close validates totals and authenticated signer while preserving signed cuts', { skip: !process.env.TEST_DATABASE_URL }, async (t) => {
     const source = new URL(process.env.TEST_DATABASE_URL);
     assert(['127.0.0.1', 'localhost', '[::1]'].includes(source.hostname));
     const name = `inventa_cash_totals_${process.pid}`;
@@ -36,6 +36,8 @@ test('cash close validates totals and authenticated signer while preserving prog
         await new Promise(resolve => server.once('listening', resolve));
         const base = `http://127.0.0.1:${server.address().port}`;
         const user = await prisma.user.create({ data: { role: 'SECRETARY', email: 'cash@example.invalid', fullName: 'Synthetic Cashier', passwordHash: 'synthetic-only' } });
+        const secondSigner = await prisma.user.create({ data: { role: 'ADMIN', email: 'second@cash.invalid', fullName: 'Second Signer', passwordHash: 'synthetic-only' } });
+        const secondToken = jwt.sign({ role: 'ADMIN', userId: secondSigner.id }, process.env.JWT_SECRET);
         const token = jwt.sign({ role: user.role, userId: user.id }, process.env.JWT_SECRET);
         async function request(route, body, authToken = token) {
             return fetch(base + route, { method: body ? 'POST' : 'GET', headers: { Authorization: 'Bearer ' + authToken, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -57,7 +59,7 @@ test('cash close validates totals and authenticated signer while preserving prog
         const morning = { total: 0.3, cash: 0.3, card: 0, insurance: 0 };
         const afternoon = { total: 60, cash: 0, card: 20, insurance: 40 };
         const payload = { date: '2026-10-12', shift: 'ALL_DAY', role: 'CAJERO', note: 'Synthetic close' };
-        const sign = body => request('/api/cash-close/sign', { ...payload, ...body });
+        const sign = (body, authToken) => request('/api/cash-close/sign', { ...payload, ...body }, authToken);
         for (const [shift, totals] of [['ALL_DAY', all], ['MORNING', morning], ['AFTERNOON', afternoon]]) {
             assert.deepEqual((await json(await request(`/api/cash-close?date=2026-10-12&shift=${shift}`))).liveTotals, totals);
         }
@@ -76,18 +78,29 @@ test('cash close validates totals and authenticated signer while preserving prog
         assert.equal(Number(close.totalCash), all.cash);
         assert.equal(Number(close.totalCard), all.card);
         assert.equal(Number(close.totalInsurance), all.insurance);
-        await payment(5, 'CASH', '2026-10-12T12:00:00Z');
-        await json(await sign({ totals: all }), 409);
+        const laterPayment = await payment(5, 'CASH', '2026-10-12T12:00:00Z');
+        const duplicate = await json(await sign({ totals: all }), 409);
+        assert.equal(duplicate.code, 'CASH_CLOSE_ALREADY_SIGNED');
+        await json(await sign({ totals: all }, secondToken), 409);
+        const afterPayment = await json(await request('/api/cash-close?date=2026-10-12'));
+        assert.deepEqual(afterPayment.subsequentPayments, { count: 1, totals: { total: 5, cash: 5, card: 0, insurance: 0 } });
         const unchanged = await prisma.cashClose.findUnique({ where: { id: close.id } });
         assert.equal(unchanged.signatures.length, 1);
         assert.equal(Number(unchanged.totalAmount), all.total);
         // Omitted/null totals remain compatible, but never supply the saved amounts.
-        const updated = await json(await sign({}));
+        const updated = await json(await sign({}, secondToken));
         assert.equal(updated.id, close.id);
         assert.equal(updated.signatures.length, 2);
         assert.deepEqual(updated.signatures[0], close.signatures[0]);
         assert.deepEqual(updated.signatures[1].snapshot, { ...all, total: 65.3, cash: 5.3 });
-        assert.equal(Number(updated.totalAmount), 65.3);
+        assert.equal(Number(updated.totalAmount), all.total);
+        assert.equal(updated.closedAt, close.closedAt);
+        assert.equal(updated.closedBy, close.closedBy);
+        assert.equal(close.signatures[0].paymentSnapshot.length, 4);
+        assert.equal(updated.signatures[1].paymentSnapshot.length, 5);
+        assert(!close.signatures[0].paymentSnapshot.some(p => p.id === laterPayment.id));
+        assert(updated.signatures[1].paymentSnapshot.some(p => p.id === laterPayment.id));
+        assert.equal((await json(await request('/api/cash-close?date=2026-10-12'))).subsequentPayments.count, 0);
         for (const [shift, totals] of [['MORNING', { ...morning, total: 5.3, cash: 5.3 }], ['AFTERNOON', afternoon]]) {
             const signed = await json(await sign({ shift, totals }));
             assert.deepEqual(signed.signatures[0].snapshot, totals);
@@ -113,16 +126,58 @@ test('cash close validates totals and authenticated signer while preserving prog
             });
         }
         await t.test('client role is optional and arbitrary payloads cannot change the signer role', async () => {
+            let day = 17;
             for (const extra of [{}, { role: null }, { role: { ADMIN: true } }]) {
-                const signed = await json(await request('/api/cash-close/sign', { date: '2026-10-17', note: 'Real role only', ...extra }));
+                const signed = await json(await request('/api/cash-close/sign', { date: `2026-10-${day++}`, note: 'Real role only', ...extra }));
                 assert.equal(signed.signatures.at(-1).role, 'CAJERO');
                 assert.equal(signed.signatures.at(-1).userId, user.id);
             }
             // A changed account role takes effect even with the old token and client role.
             await prisma.user.update({ where: { id: user.id }, data: { role: 'PROFESSIONAL' } });
-            const signed = await json(await sign({ date: '2026-10-17', role: 'ADMIN' }));
+            const signed = await json(await sign({ date: '2026-10-20', role: 'ADMIN' }));
             assert.equal(signed.signatures.at(-1).role, 'MEDICO');
-            assert.equal(signed.signatures[0].role, 'CAJERO');
+            const original = await json(await request('/api/cash-close?date=2026-10-17'));
+            assert.equal(original.close.signatures[0].role, 'CAJERO');
+        });
+        await t.test('simultaneous duplicate requests create one close and one signature', async () => {
+            const responses = await Promise.all(Array.from({ length: 8 }, () => sign({ date: '2026-10-21' })));
+            assert.deepEqual(responses.map(r => r.status).sort(), [200, 409, 409, 409, 409, 409, 409, 409]);
+            for (const response of responses.filter(r => r.status === 409)) assert.equal((await response.json()).code, 'CASH_CLOSE_ALREADY_SIGNED');
+            const closes = await prisma.cashClose.findMany({ where: { date: new Date('2026-10-21T00:00:00Z') } });
+            assert.equal(closes.length, 1);
+            assert.equal(closes[0].signatures.length, 1);
+        });
+        await t.test('different simultaneous signers are retained and retries do not overwrite evidence', async () => {
+            const responses = await Promise.all([token, secondToken].map(auth => sign({ date: '2026-10-22' }, auth)));
+            for (const response of responses) await json(response);
+            const before = await prisma.cashClose.findFirst({ where: { date: new Date('2026-10-22T00:00:00Z') } });
+            assert.equal(before.signatures.length, 2);
+            assert.equal(new Set(before.signatures.map(s => s.userId)).size, 2);
+            await json(await sign({ date: '2026-10-22', note: 'Must not replace', snapshot: { total: 999 } }), 409);
+            const after = await prisma.cashClose.findUnique({ where: { id: before.id } });
+            assert.deepEqual(after, before);
+        });
+        await t.test('historical cuts keep totals and signatures without inventing receipt evidence', async () => {
+            const legacySignature = { userId: user.id, role: 'CAJERO', name: 'Historical', timestamp: '2026-10-23T10:00:00Z', note: 'Preserve me', snapshot: { total: 123, cash: 123, card: 0, insurance: 0 } };
+            const legacy = await prisma.cashClose.create({ data: { date: new Date('2026-10-23T00:00:00Z'), closedBy: user.id, totalAmount: 123, totalCash: 123, signatures: [legacySignature] } });
+            assert.equal((await json(await request('/api/cash-close?date=2026-10-23'))).subsequentPayments, null);
+            await json(await sign({ date: '2026-10-23' }), 409);
+            const signed = await json(await sign({ date: '2026-10-23' }, secondToken));
+            assert.equal(Number(signed.totalAmount), 123);
+            assert.equal(Number(signed.totalCash), 123);
+            assert.equal(signed.closedAt, legacy.closedAt.toISOString());
+            assert.deepEqual(signed.signatures[0], legacySignature);
+            assert.deepEqual(signed.signatures[1].paymentSnapshot, []);
+        });
+        await t.test('an unsigned historical draft receives its first server-calculated cut', async () => {
+            const draft = await prisma.cashClose.create({ data: { date: new Date('2026-10-24T00:00:00Z'), closedBy: user.id, totalAmount: 999, totalCash: 999 } });
+            const signed = await json(await sign({ date: '2026-10-24' }, secondToken));
+            assert.equal(signed.id, draft.id);
+            assert.equal(Number(signed.totalAmount), 0);
+            assert.equal(signed.closedBy, secondSigner.id);
+            assert.equal(signed.signatures.length, 1);
+            await json(await sign({ date: '2026-10-24' }, secondToken), 409);
+            assert.equal((await prisma.cashClose.findUnique({ where: { id: draft.id } })).signatures.length, 1);
         });
         await t.test('unauthenticated, inactive and deleted accounts cannot add signatures', async () => {
             const count = await prisma.cashClose.count();

@@ -8,23 +8,37 @@ export interface CashTotals {
     insurance: number;
 }
 
-// Keep the existing receipt-based scope and payment-method classification.
-// Status and signing must always use the same calculation.
-export async function cashCloseTotals(db: Pick<Prisma.TransactionClient, 'payment'>, date: string, shift: string): Promise<CashTotals> {
-    const groups = await db.payment.groupBy({
-        by: ['paymentMethod'],
-        where: { createdAt: clinicShiftRange(date, shift) },
-        _sum: { amount: true }
-    });
+export interface CashPaymentSnapshot {
+    id: string;
+    transactionId: string;
+    amount: string;
+    paymentMethod: string;
+    createdAt: string;
+}
+
+export function sumCashPayments(payments: Pick<CashPaymentSnapshot, 'amount' | 'paymentMethod'>[]): CashTotals {
     const totals = { total: new Prisma.Decimal(0), cash: new Prisma.Decimal(0), card: new Prisma.Decimal(0), insurance: new Prisma.Decimal(0) };
-    for (const group of groups) {
-        const amount = group._sum.amount ?? new Prisma.Decimal(0);
+    for (const payment of payments) {
+        const amount = new Prisma.Decimal(payment.amount);
         totals.total = totals.total.plus(amount);
-        if (group.paymentMethod === 'CASH') totals.cash = totals.cash.plus(amount);
-        else if (group.paymentMethod === 'CARD') totals.card = totals.card.plus(amount);
-        else if (group.paymentMethod === 'INSURANCE') totals.insurance = totals.insurance.plus(amount);
+        if (payment.paymentMethod === 'CASH') totals.cash = totals.cash.plus(amount);
+        else if (payment.paymentMethod === 'CARD') totals.card = totals.card.plus(amount);
+        else if (payment.paymentMethod === 'INSURANCE') totals.insurance = totals.insurance.plus(amount);
     }
     return { total: totals.total.toNumber(), cash: totals.cash.toNumber(), card: totals.card.toNumber(), insurance: totals.insurance.toNumber() };
+}
+
+// A single read supplies both the amounts and the exact receipts being signed.
+export async function cashCloseSnapshot(db: Pick<Prisma.TransactionClient, 'payment'>, date: string, shift: string) {
+    const rows = await db.payment.findMany({
+        where: { createdAt: clinicShiftRange(date, shift) },
+        select: { id: true, transactionId: true, amount: true, paymentMethod: true, createdAt: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+    });
+    const payments: CashPaymentSnapshot[] = rows.map(row => ({
+        ...row, amount: row.amount.toString(), createdAt: row.createdAt.toISOString()
+    }));
+    return { totals: sumCashPayments(payments), payments };
 }
 
 export function validCashTotals(value: unknown): value is CashTotals {
