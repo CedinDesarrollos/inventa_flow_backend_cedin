@@ -18,7 +18,8 @@ const systemConfigSchema = z.object({
     reminder_window_start: z.string().optional(),
     reminder_window_end: z.string().optional(),
     reminder_hours_before: z.number().optional(),
-    patient_data_validation_enabled: z.boolean().optional()
+    patient_data_validation_enabled: z.boolean().optional(),
+    default_branch_id: z.string().optional() // sucursal que se muestra por defecto; 'all' = todas
 });
 
 export const getSettings = async (req: Request, res: Response) => {
@@ -29,6 +30,7 @@ export const getSettings = async (req: Request, res: Response) => {
             'invoiceCode', 'timbrado', 'timezone', 'retentionMonths',
             'reminders_enabled', 'reminder_window_start', 'reminder_window_end', 'reminder_hours_before',
             'patient_data_validation_enabled', // New
+            'default_branch_id',
             CLINIC_CONFIG_KEY // Keep for legacy fallback if needed
         ];
 
