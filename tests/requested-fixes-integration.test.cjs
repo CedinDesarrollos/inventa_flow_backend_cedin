@@ -114,7 +114,7 @@ test('requested fixes: history paging, whole-day agenda, recurring period, revok
    const current=await json(await request(`/costs/overview?startMonth=${recordedMonth}&endMonth=${recordedMonth}&origin=recurring${basis}`,{token:auth}));
    assert.equal(current.summary.total,0);assert.equal(current.pagination.total,0);
   }
-  const lastDay=await json(await request('/costs?startDate=2026-10-31&endDate=2026-10-31&isRecurring=false',{token:auth}));
+  const lastDay=(await json(await request('/costs?startDate=2026-10-31&endDate=2026-10-31&isRecurring=false',{token:auth}))).filter(c=>c.id!==payment.id); // el pago usa la fecha actual
   assert.equal(lastDay.length,1);assert.equal(lastDay[0].id,purchased.id);
   assert.equal((await request('/costs/overview?startMonth=2025-01&endMonth=2026-10',{token:oldToken})).status,403);
   assert.equal((await request('/costs/overview?startMonth=2025-01&endMonth=2026-10')).status,401);
