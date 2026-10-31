@@ -15,4 +15,5 @@ test('patient search tolerates word order, accents, partial words, typos and for
     assert.deepEqual(ids('cabr'), ['ruth']);
     assert.deepEqual(ids('4.567.890'), ['maria']);
     assert.deepEqual(ids('pedro'), []);
+    assert.deepEqual(searchPatients([{ firstName: '张', lastName: '伟' }, { firstName: 'Ana', lastName: 'Lee' }], '张').map((p) => p.firstName), ['张']);
 });
