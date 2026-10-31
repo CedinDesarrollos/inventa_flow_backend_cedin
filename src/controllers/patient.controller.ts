@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { userProfileSelect } from '../lib/user-profile';
 import { z } from 'zod';
+import { searchPatients } from '../lib/patient-search';
 
 const patientSchema = z.object({
     firstName: z.string().min(1, "Nombre requerido"),
@@ -33,24 +34,6 @@ export const getPatients = async (req: Request, res: Response) => {
             });
         }
 
-        if (search) {
-            const searchTerms = String(search).trim().split(/\s+/);
-
-
-            // For each term, we require it to match AT LEAST ONE of the fields
-            // AND (Term1 matches (First OR Last OR Id)) AND (Term2 matches (First OR Last OR Id)) ...
-            searchTerms.forEach(term => {
-                andConditions.push({
-                    OR: [
-                        { firstName: { contains: term, mode: 'insensitive' } },
-                        { lastName: { contains: term, mode: 'insensitive' } },
-                        { identifier: { contains: term, mode: 'insensitive' } },
-                        { phone: { contains: term } }
-                    ]
-                });
-            });
-        }
-
         if (doctorId) {
             const isExplicitSearch = search && String(search).trim().length >= 3;
 
@@ -79,6 +62,19 @@ export const getPatients = async (req: Request, res: Response) => {
             where.AND = andConditions;
         }
 
+        let searchOrder: string[] | null = null;
+        if (search && String(search).trim()) {
+            // Búsqueda tolerante (tildes, orden, tipeo): se puntúa en memoria sobre los campos de nombre.
+            const candidates = await prisma.patient.findMany({
+                where,
+                orderBy: { createdAt: 'desc' },
+                select: { id: true, firstName: true, lastName: true, identifier: true, phone: true }
+            });
+            // shortcut: puntúa toda la base en cada búsqueda; pasar a pg_trgm si los pacientes superan ~50 mil.
+            searchOrder = searchPatients(candidates, String(search)).slice(0, 50).map(p => p.id);
+            where.AND = [...(where.AND || []), { id: { in: searchOrder } }];
+        }
+
         const patients = await prisma.patient.findMany({
             where,
             orderBy: { createdAt: 'desc' },
@@ -97,6 +93,11 @@ export const getPatients = async (req: Request, res: Response) => {
                 }
             }
         });
+
+        if (searchOrder) {
+            const rank = new Map(searchOrder.map((id, index) => [id, index]));
+            patients.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+        }
 
         const now = new Date();
         const mappedPatients = patients.map(p => {
