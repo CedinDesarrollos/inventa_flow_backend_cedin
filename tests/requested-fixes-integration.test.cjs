@@ -48,6 +48,20 @@ test('requested fixes: history paging, whole-day agenda, recurring period, revok
   assert.equal((await json(await request(`/clinical-records/${patient.id}?page=4`,{token:auth}))).records.length,0);
   assert.equal(await prisma.clinicalRecord.count(),23);
   console.log('PASS: paginated clinical history without duplicated or fabricated records');
+  const docs={patientId:patient.id,doctorId:professional.id,content:{type:'doc',content:[]},
+   prescriptionItems:[{medicationName:'Synthetic med',duration:'7 días',instructions:'1 cada 8hs'}],
+   certificate:{consultDate:'2026-01-30',restDays:'3',startDate:'2026-01-30',diagnosis:'Synthetic dx',notes:''},
+   studyOrder:{studies:[{name:'Hemograma completo',notes:''},{name:'Rx de tórax',notes:'frente y perfil'}],indication:'Control',urgent:true}};
+  const saveResult=await json(await request('/clinical-records',{method:'POST',token:auth,body:docs}),201);
+  assert.equal((await request('/clinical-records',{method:'POST',token:auth,body:{...docs,studyOrder:{studies:[],indication:'',urgent:false}}})).status,400);
+  const saved=(await json(await request(`/clinical-records/${patient.id}?page=1&pageSize=1`,{token:auth}))).records[0].prescriptions;
+  assert.equal(saved.length,3);
+  assert(saved.some(p=>Array.isArray(p.medications)&&p.medications[0].medicationName==='Synthetic med'));
+  assert.equal(saved.find(p=>p.medications.type==='certificate').medications.restDays,'3');
+  assert.equal(saved.find(p=>p.medications.type==='studyOrder').medications.urgent,true);
+  assert.deepEqual(await json(await request('/clinical-records/study-suggestions',{token:auth})),['Hemograma completo','Rx de tórax']);
+  await prisma.prescription.deleteMany();await prisma.clinicalRecord.delete({where:{id:saveResult.record.id}});
+  console.log('PASS: certificate and study order saved beside the prescription and suggested later');
 
   const day=DateTime.now().setZone('America/Asuncion').toISODate();
   const tomorrow=DateTime.fromISO(day).plus({days:1}).toISODate();
