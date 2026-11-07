@@ -182,6 +182,7 @@ export const updateAppointmentStatus = async (req: AuthRequest, res: Response) =
         // Time Tracking Logic
         if (status === 'IN_PROGRESS') {
             updateData.startedAt = new Date();
+            updateData.completedAt = null; // A reopened consultation gets a fresh completion time.
         } else if (status === 'COMPLETED' || status === 'BILLED') {
             // Keep the booked duration: the agenda draws date+duration, so overwriting it with
             // the real attention time stretched blocks. Real time lives in startedAt/completedAt.

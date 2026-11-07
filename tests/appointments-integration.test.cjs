@@ -102,6 +102,11 @@ test('real PostgreSQL enforces own-agenda access while preserving authorized ope
         for (const status of ['COMPLETED', 'BILLED']) {
             assert.equal((await request(`/api/appointments/${appointment.id}/status`, { method: 'PATCH', token: own, body: { status } })).status, 200);
         }
+        const firstCompletion = (await prisma.appointment.findUnique({ where: { id: appointment.id } })).completedAt;
+        for (const status of ['IN_PROGRESS', 'COMPLETED']) {
+            assert.equal((await request(`/api/appointments/${appointment.id}/status`, { method: 'PATCH', token: own, body: { status } })).status, 200);
+        }
+        assert((await prisma.appointment.findUnique({ where: { id: appointment.id } })).completedAt > firstCompletion); // Reopening refreshes completion.
         const finished = await prisma.appointment.findUnique({ where: { id: appointment.id } });
         assert.equal(finished.duration, booked); // Attention time must not stretch the agenda block.
         assert(finished.completedAt);
