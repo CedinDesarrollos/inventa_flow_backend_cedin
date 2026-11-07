@@ -183,19 +183,10 @@ export const updateAppointmentStatus = async (req: AuthRequest, res: Response) =
         if (status === 'IN_PROGRESS') {
             updateData.startedAt = new Date();
         } else if (status === 'COMPLETED' || status === 'BILLED') {
-            // Fetch current to get startedAt
-            const currentApp = await prisma.appointment.findUnique({ where: { id } });
-
-            // Set completion time
-            const now = new Date();
-            updateData.completedAt = now;
-
-            // Calculate duration if startedAt exists
-            if (currentApp?.startedAt) {
-                const diffMs = now.getTime() - new Date(currentApp.startedAt).getTime();
-                const durationMin = Math.ceil(diffMs / 60000);
-                updateData.duration = durationMin > 0 ? durationMin : 1; // Minimum 1 minute
-            }
+            // Keep the booked duration: the agenda draws date+duration, so overwriting it with
+            // the real attention time stretched blocks. Real time lives in startedAt/completedAt.
+            const currentApp = await prisma.appointment.findUnique({ where: { id }, select: { completedAt: true } });
+            if (!currentApp?.completedAt) updateData.completedAt = new Date();
         }
 
         const appointment = await updateAppointmentSafely(id, updateData,

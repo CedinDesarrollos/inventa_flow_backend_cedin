@@ -97,6 +97,14 @@ test('real PostgreSQL enforces own-agenda access while preserving authorized ope
         assert.deepEqual(rescheduleRace.map(r => r.status).sort(), [200, 409]);
         await prisma.appointment.deleteMany({ where: { id: { in: [blocker.id, otherBlocker.id, cancelled.id, winning.id, later.id] } } });
         assert.equal((await request(`/api/appointments/${appointment.id}/status`, { method: 'PATCH', token: own, body: { status: 'CONFIRMED' } })).status, 200);
+        const booked = (await prisma.appointment.findUnique({ where: { id: appointment.id } })).duration;
+        await prisma.appointment.update({ where: { id: appointment.id }, data: { startedAt: new Date(Date.now() - 95 * 60000) } });
+        for (const status of ['COMPLETED', 'BILLED']) {
+            assert.equal((await request(`/api/appointments/${appointment.id}/status`, { method: 'PATCH', token: own, body: { status } })).status, 200);
+        }
+        const finished = await prisma.appointment.findUnique({ where: { id: appointment.id } });
+        assert.equal(finished.duration, booked); // Attention time must not stretch the agenda block.
+        assert(finished.completedAt);
         assert.equal((await request(`/api/appointments/${appointment.id}`, { method: 'DELETE', token: other })).status, 403);
         assert.equal((await request(`/api/appointments/${appointment.id}`, { method: 'DELETE', token: auth(doctors[1].id, 'SECRETARY') })).status, 204);
         assert.equal(await prisma.appointment.count(), 0);

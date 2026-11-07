@@ -44,7 +44,9 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
                 patientId: true,
                 branchId: true,
                 date: true,
-                duration: true
+                duration: true,
+                startedAt: true,
+                completedAt: true
             }
         });
 
@@ -80,7 +82,10 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
             // Operational Metrics (Attended = COMPLETED or BILLED)
             if (s === 'COMPLETED' || s === 'BILLED') {
                 opsStats.totalAttended++;
-                opsStats.totalDuration += (app.duration || 0);
+                const minutes = app.startedAt && app.completedAt
+                    ? Math.max(1, Math.ceil((app.completedAt.getTime() - app.startedAt.getTime()) / 60000))
+                    : (app.duration || 0);
+                opsStats.totalDuration += minutes;
 
                 // Daily breakdown for charts
                 // Use simplified date string YYYY-MM-DD
@@ -89,7 +94,7 @@ export const getDashboardKpis = async (req: Request, res: Response) => {
                     opsStats.daily[dayKey] = { count: 0, duration: 0 };
                 }
                 opsStats.daily[dayKey].count++;
-                opsStats.daily[dayKey].duration += (app.duration || 0);
+                opsStats.daily[dayKey].duration += minutes;
             }
         });
 
