@@ -14,8 +14,38 @@ const clinicalRecordSchema = z.object({
         medicationName: z.string(),
         duration: z.string(),
         instructions: z.string(),
-    })).optional()
+    })).optional(),
+    certificate: z.object({
+        consultDate: z.string().max(20),
+        restDays: z.string().max(10),
+        startDate: z.string().max(20),
+        diagnosis: z.string().max(2000),
+        notes: z.string().max(5000),
+    }).optional(),
+    studyOrder: z.object({
+        studies: z.array(z.object({
+            id: z.string().optional(),
+            name: z.string().trim().min(1).max(300),
+            notes: z.string().max(2000),
+        })).min(1).max(100),
+        indication: z.string().max(2000),
+        urgent: z.boolean(),
+    }).optional()
 });
+
+export const getStudySuggestions = async (_req: Request, res: Response) => {
+    try {
+        const rows = await prisma.$queryRaw<{ name: string }[]>`
+            SELECT DISTINCT s->>'name' AS name
+            FROM inventa_clinical_app.prescriptions p, jsonb_array_elements(p.medications->'studies') s
+            WHERE p.medications->>'type' = 'studyOrder'
+            ORDER BY 1 LIMIT 1000`;
+        res.json(rows.map(r => r.name).filter(Boolean));
+    } catch (error) {
+        console.error('Error fetching study suggestions:', error);
+        res.status(500).json({ error: 'Error al obtener estudios' });
+    }
+};
 
 export const getClinicalRecords = async (req: Request, res: Response) => {
     try {
@@ -72,6 +102,15 @@ export const createClinicalRecord = async (req: Request, res: Response) => {
                         medications: data.prescriptionItems
                     }
                 });
+            }
+
+            // Certificates and study orders reuse the prescriptions table (JSON column) so no schema migration is needed;
+            // they are told apart from medication lists (arrays) by medications.type.
+            const documents = [];
+            if (data.certificate) documents.push({ type: 'certificate', ...data.certificate });
+            if (data.studyOrder) documents.push({ type: 'studyOrder', ...data.studyOrder });
+            for (const medications of documents) {
+                await tx.prescription.create({ data: { patientId: data.patientId, clinicalRecordId: record.id, medications } });
             }
 
             return { record, prescription };
