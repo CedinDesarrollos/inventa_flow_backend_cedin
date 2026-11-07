@@ -51,14 +51,14 @@ test('requested fixes: history paging, whole-day agenda, recurring period, revok
   const docs={patientId:patient.id,doctorId:professional.id,content:{type:'doc',content:[]},
    prescriptionItems:[{medicationName:'Synthetic med',duration:'7 días',instructions:'1 cada 8hs'}],
    certificate:{consultDate:'2026-01-30',restDays:'3',startDate:'2026-01-30',diagnosis:'Synthetic dx',notes:''},
-   studyOrder:{studies:[{name:'Hemograma completo',notes:''},{name:'Rx de tórax',notes:'frente y perfil'}],indication:'Control',urgent:true}};
+   studyOrders:[{studies:[{name:'Hemograma completo',notes:''}],indication:'Control',urgent:true},{studies:[{name:'Rx de tórax',notes:'frente y perfil'}],indication:'',urgent:false}]};
   const saveResult=await json(await request('/clinical-records',{method:'POST',token:auth,body:docs}),201);
-  assert.equal((await request('/clinical-records',{method:'POST',token:auth,body:{...docs,studyOrder:{studies:[],indication:'',urgent:false}}})).status,400);
+  assert.equal((await request('/clinical-records',{method:'POST',token:auth,body:{...docs,studyOrders:[{studies:[],indication:'',urgent:false}]}})).status,400);
   const saved=(await json(await request(`/clinical-records/${patient.id}?page=1&pageSize=1`,{token:auth}))).records[0].prescriptions;
-  assert.equal(saved.length,3);
+  assert.equal(saved.length,4);
   assert(saved.some(p=>Array.isArray(p.medications)&&p.medications[0].medicationName==='Synthetic med'));
   assert.equal(saved.find(p=>p.medications.type==='certificate').medications.restDays,'3');
-  assert.equal(saved.find(p=>p.medications.type==='studyOrder').medications.urgent,true);
+  assert.equal(saved.filter(p=>p.medications.type==='studyOrder').length,2);
   assert.deepEqual(await json(await request('/clinical-records/study-suggestions',{token:auth})),['Hemograma completo','Rx de tórax']);
   await prisma.prescription.deleteMany();await prisma.clinicalRecord.delete({where:{id:saveResult.record.id}});
   console.log('PASS: certificate and study order saved beside the prescription and suggested later');

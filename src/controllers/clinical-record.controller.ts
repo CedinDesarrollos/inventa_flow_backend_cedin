@@ -2,6 +2,16 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { z } from 'zod';
 
+const studyOrderSchema = z.object({
+    studies: z.array(z.object({
+        id: z.string().optional(),
+        name: z.string().trim().min(1).max(300),
+        notes: z.string().max(2000),
+    })).min(1).max(100),
+    indication: z.string().max(2000),
+    urgent: z.boolean(),
+});
+
 // Schema for Creating a Clinical Record
 const clinicalRecordSchema = z.object({
     patientId: z.string().uuid(),
@@ -22,15 +32,8 @@ const clinicalRecordSchema = z.object({
         diagnosis: z.string().max(2000),
         notes: z.string().max(5000),
     }).optional(),
-    studyOrder: z.object({
-        studies: z.array(z.object({
-            id: z.string().optional(),
-            name: z.string().trim().min(1).max(300),
-            notes: z.string().max(2000),
-        })).min(1).max(100),
-        indication: z.string().max(2000),
-        urgent: z.boolean(),
-    }).optional()
+    studyOrder: studyOrderSchema.optional(),
+    studyOrders: z.array(studyOrderSchema).max(20).optional()
 });
 
 export const getStudySuggestions = async (_req: Request, res: Response) => {
@@ -108,7 +111,9 @@ export const createClinicalRecord = async (req: Request, res: Response) => {
             // they are told apart from medication lists (arrays) by medications.type.
             const documents = [];
             if (data.certificate) documents.push({ type: 'certificate', ...data.certificate });
-            if (data.studyOrder) documents.push({ type: 'studyOrder', ...data.studyOrder });
+            for (const order of [...(data.studyOrder ? [data.studyOrder] : []), ...(data.studyOrders ?? [])]) {
+                documents.push({ type: 'studyOrder', ...order });
+            }
             for (const medications of documents) {
                 await tx.prescription.create({ data: { patientId: data.patientId, clinicalRecordId: record.id, medications } });
             }
