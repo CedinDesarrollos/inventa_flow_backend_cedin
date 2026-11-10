@@ -105,11 +105,13 @@ export const replaceSiteDay = async (req: AuthRequest, res: Response) => {
             if (toMinutes(w.start) >= toMinutes(w.end)) throw new HttpError(400, `La franja ${w.start}-${w.end} termina antes de empezar`);
             if (i > 0 && toMinutes(w.start) < toMinutes(sorted[i - 1].end)) throw new HttpError(400, 'Las franjas no pueden superponerse');
         });
-        await prisma.$transaction([
-            prisma.scheduleException.deleteMany({
+        await prisma.$transaction(async tx => {
+            // Serializa reemplazos concurrentes del mismo profesional (evita sumar dos juegos de franjas).
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'site-day:' + body.professionalId}, 0))`;
+            await tx.scheduleException.deleteMany({
                 where: { professionalId: body.professionalId, kind: 'SITE', dateFrom: body.date, dateTo: body.date }
-            }),
-            prisma.scheduleException.createMany({
+            });
+            await tx.scheduleException.createMany({
                 data: sorted.map(w => ({
                     professionalId: body.professionalId,
                     kind: 'SITE',
@@ -121,8 +123,8 @@ export const replaceSiteDay = async (req: AuthRequest, res: Response) => {
                     branchId: w.branchId || null,
                     createdById: req.user!.userId
                 }))
-            })
-        ]);
+            });
+        });
         const saved = await prisma.scheduleException.findMany({
             where: { professionalId: body.professionalId, kind: 'SITE', dateFrom: body.date, dateTo: body.date },
             include: exceptionInclude,
