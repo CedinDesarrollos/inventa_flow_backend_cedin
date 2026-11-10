@@ -32,6 +32,8 @@ model User {
   inventoryMovements    InventoryMovement[]
   medicalVisits         MedicalVisit[]
   schedules             ProfessionalSchedule[]
+  scheduleExceptionsCreated  ScheduleException[] @relation("ScheduleExceptionCreator")
+  scheduleExceptionsReviewed ScheduleException[] @relation("ScheduleExceptionReviewer")
   professional          Professional?
   processedTransactions Transaction[]          @relation("TransactionAuthor")
   doctorTransactions    Transaction[]          @relation("TransactionDoctor")
@@ -64,6 +66,7 @@ model Professional {
   user               User        @relation(fields: [userId], references: [id])
   tariffs            Tariff[]
   acceptedInsurances Insurance[] @relation("InsuranceToProfessional")
+  scheduleExceptions ScheduleException[]
 
   @@map("professionals")
   @@schema("inventa_clinical_app")
@@ -90,6 +93,7 @@ model Branch {
   products      Product[]
   medicalVisits MedicalVisit[]
   patients      Patient[]
+  scheduleExceptions ScheduleException[]
 
   @@map("branches")
   @@schema("inventa_clinical_app")
@@ -269,6 +273,35 @@ model ProfessionalSchedule {
   professional   User    @relation(fields: [professionalId], references: [id])
 
   @@map("professional_schedules")
+  @@schema("inventa_clinical_app")
+}
+
+// Excepciones al horario base (professionals.working_hours):
+// SITE = horario particular de una fecha (reemplaza el día completo); OOO = ausencia.
+model ScheduleException {
+  id             String       @id @default(uuid())
+  professionalId String       @map("professional_id")
+  kind           String // SITE | OOO
+  status         String       @default("APPROVED") // PENDING | APPROVED | REJECTED
+  dateFrom       DateTime     @map("date_from") @db.Date
+  dateTo         DateTime     @map("date_to") @db.Date
+  startTime      String?      @map("start_time") // HH:mm; null en OOO = día completo
+  endTime        String?      @map("end_time")
+  branchId       String?      @map("branch_id")
+  reason         String?
+  createdById    String       @map("created_by_id")
+  reviewedById   String?      @map("reviewed_by_id")
+  reviewedAt     DateTime?    @map("reviewed_at")
+  reviewNote     String?      @map("review_note")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  branch         Branch?      @relation(fields: [branchId], references: [id])
+  createdBy      User         @relation("ScheduleExceptionCreator", fields: [createdById], references: [id])
+  reviewedBy     User?        @relation("ScheduleExceptionReviewer", fields: [reviewedById], references: [id])
+
+  @@index([professionalId, dateFrom, dateTo])
+  @@map("schedule_exceptions")
   @@schema("inventa_clinical_app")
 }
 
