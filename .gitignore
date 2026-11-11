@@ -17,3 +17,7 @@ instance/
 # Build
 dist/
 *.log
+
+# Local logs and user uploads must never be committed
+server.log
+public/uploads/
