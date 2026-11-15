@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { userProfileSelect } from '../lib/user-profile';
 import { z } from 'zod';
 import { appointmentEnd } from '../services/appointments/AppointmentService';
+import { dayKey, toMinutes, windowsForDay } from '../services/schedule/workingWindows';
 
 const availabilityQuerySchema = z.object({
     date: z.string().datetime(),
@@ -68,52 +69,22 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
         const dayStart = new Date(date);
         dayStart.setUTCHours(0, 0, 0, 0);
 
-        // 1. Get Professional Schedule for this day of week (0=Sunday)
-        const dayOfWeek = dayStart.getUTCDay();
-
-        // Default: 08:00 - 18:00
-        let workStartHour = 8;
-        let workEndHour = 18;
-        let workStartMinute = 0;
-        let workEndMinute = 0;
-
-        const professional = await prisma.professional.findFirst({
-            where: { userId: userId }
+        const professional = await prisma.professional.findFirst({ where: { userId } });
+        const exceptions = professional
+            ? await prisma.scheduleException.findMany({
+                where: { professionalId: professional.id, status: 'APPROVED', dateFrom: { lte: dayStart }, dateTo: { gte: dayStart } }
+            })
+            : [];
+        // Sin horario ese día (o ausente) => sin turnos; ya no se cae en 08:00-18:00.
+        const windows = windowsForDay(professional?.workingHours, exceptions, dayStart, branchId).map(w => {
+            const from = new Date(dayStart), to = new Date(dayStart);
+            from.setUTCMinutes(toMinutes(w.start));
+            to.setUTCMinutes(toMinutes(w.end));
+            return { from, to };
         });
-
-        if (professional && professional.workingHours) {
-            const wh = professional.workingHours as any;
-            let scheduleConfig = null;
-
-            if (Array.isArray(wh)) {
-                if (branchId) {
-                    scheduleConfig = wh.find((cfg: any) => cfg.branchId === branchId);
-                }
-            } else {
-                scheduleConfig = wh;
-            }
-
-            if (scheduleConfig) {
-                if (scheduleConfig.days && scheduleConfig.days.includes(dayOfWeek)) {
-                    if (scheduleConfig.start) {
-                        const [h, m] = scheduleConfig.start.split(':').map(Number);
-                        workStartHour = h;
-                        workStartMinute = m;
-                    }
-                    if (scheduleConfig.end) {
-                        const [h, m] = scheduleConfig.end.split(':').map(Number);
-                        workEndHour = h;
-                        workEndMinute = m;
-                    }
-                }
-            }
-        }
-
-        const scheduleStart = new Date(dayStart);
-        scheduleStart.setUTCHours(workStartHour, workStartMinute, 0, 0);
-
-        const scheduleEnd = new Date(dayStart);
-        scheduleEnd.setUTCHours(workEndHour, workEndMinute, 0, 0);
+        if (!windows.length) return res.json([]);
+        const scheduleStart = windows[0].from;
+        const scheduleEnd = new Date(Math.max(...windows.map(w => w.to.getTime())));
 
         // 2. Get existing appointments for this professional on this day
         const appointments = await prisma.$queryRaw<{ date: Date; duration: number }[]>`
@@ -124,27 +95,16 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
             ORDER BY date ASC
         `;
 
-        // 3. Calculate Slots (Grid Search Strategy)
+        // 3. Calculate Slots (Grid Search Strategy) inside each window
         const SLOT_STEP = 10; // Minutes
         const slots: string[] = [];
-        let cursor = new Date(scheduleStart);
+        const isFree = (start: Date, end: Date) => !appointments.some(appt =>
+            start < appointmentEnd(new Date(appt.date), appt.duration) && end > new Date(appt.date));
 
-        while (cursor.getTime() + duration * 60000 <= scheduleEnd.getTime()) {
-            const slotEnd = new Date(cursor.getTime() + duration * 60000);
-
-            const collision = appointments.find(appt => {
-                const apptStart = new Date(appt.date);
-                const apptEnd = appointmentEnd(apptStart, appt.duration);
-
-                return cursor < apptEnd && slotEnd > apptStart;
-            });
-
-            if (!collision) {
-                // Return pure UTC string
-                slots.push(cursor.toISOString());
+        for (const w of windows) {
+            for (let cursor = w.from; cursor.getTime() + duration * 60000 <= w.to.getTime(); cursor = new Date(cursor.getTime() + SLOT_STEP * 60000)) {
+                if (isFree(cursor, new Date(cursor.getTime() + duration * 60000))) slots.push(cursor.toISOString());
             }
-
-            cursor = new Date(cursor.getTime() + SLOT_STEP * 60000);
         }
 
         // Calendar selections need not coincide with the ten-minute grid.
@@ -153,15 +113,39 @@ export const getAvailableSlots = async (req: Request, res: Response) => {
             const [hour, minute] = preferredTime.split(':').map(Number);
             preferred.setUTCHours(hour, minute, 0, 0);
             const end = appointmentEnd(preferred, duration);
-            if (preferred >= scheduleStart && end <= scheduleEnd && !appointments.some(appt =>
-                preferred < appointmentEnd(new Date(appt.date), appt.duration) && end > new Date(appt.date))) {
+            if (windows.some(w => preferred >= w.from && end <= w.to) && isFree(preferred, end)) {
                 if (!slots.includes(preferred.toISOString())) slots.push(preferred.toISOString());
-                slots.sort();
             }
         }
-        res.json(slots);
+        res.json([...new Set(slots)].sort());
     } catch (error) {
         console.error('Error calculating slots:', error);
         res.status(400).json({ error: 'Invalid parameters or calculation error' });
+    }
+};
+
+const windowsQuerySchema = z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    branchId: z.string().optional()
+});
+
+/** Franjas efectivas de cada profesional para un día (base + particulares - ausencias). */
+export const getDayWindows = async (req: Request, res: Response) => {
+    try {
+        const { date, branchId } = windowsQuerySchema.parse(req.query);
+        const day = new Date(`${date}T00:00:00.000Z`);
+        const [professionals, exceptions] = await Promise.all([
+            prisma.professional.findMany({ select: { id: true, userId: true, workingHours: true } }),
+            prisma.scheduleException.findMany({ where: { status: 'APPROVED', dateFrom: { lte: day }, dateTo: { gte: day } } })
+        ]);
+        res.json(professionals.map(p => ({
+            professionalId: p.id,
+            userId: p.userId,
+            date: dayKey(day),
+            windows: windowsForDay(p.workingHours, exceptions.filter(e => e.professionalId === p.id), day, branchId)
+        })));
+    } catch (error) {
+        console.error('Error calculating windows:', error);
+        res.status(400).json({ error: 'Invalid parameters' });
     }
 };
