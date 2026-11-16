@@ -19,10 +19,10 @@ async function lockDoctors(tx: Prisma.TransactionClient, doctors: (string | null
 }
 
 async function checkOverlap(tx: Prisma.TransactionClient, appointment: {
-    doctorId?: string | null; date: Date; duration: number; status: string; isOverbooking: boolean;
+    doctorId?: string | null; date: Date; duration: number; status: string; isOverbooking: boolean; isVirtual?: boolean;
 }, excludeId = '') {
-    // Preserve the existing explicit overbooking and walk-in (CONFIRMED) exceptions.
-    if (!appointment.doctorId || appointment.isOverbooking || appointment.status !== 'SCHEDULED') return;
+    // Preserve the existing explicit overbooking, virtual and walk-in (CONFIRMED) exceptions.
+    if (!appointment.doctorId || appointment.isOverbooking || appointment.isVirtual || appointment.status !== 'SCHEDULED') return;
     const end = appointmentEnd(appointment.date, appointment.duration);
     // Derive legacy intervals from duration too: null/stale end_date cannot hide collisions.
     const overlaps = await tx.$queryRaw<{ id: string }[]>`
@@ -50,7 +50,7 @@ export function createAppointmentSafely(data: Prisma.AppointmentUncheckedCreateI
 
 export function updateAppointmentSafely(id: string, data: Partial<Pick<Appointment,
     'patientId' | 'doctorId' | 'branchId' | 'serviceId' | 'date' | 'duration' | 'type' | 'status' |
-    'reason' | 'notes' | 'isOverbooking' | 'secretaryNote' | 'updatedAt' | 'completedAt' | 'startedAt'
+    'reason' | 'notes' | 'isOverbooking' | 'isVirtual' | 'secretaryNote' | 'updatedAt' | 'completedAt' | 'startedAt'
 >>, professionalId?: string) {
     return prisma.$transaction(async tx => {
         // Re-read after a row lock so simultaneous partial edits cannot lose interval changes.
@@ -65,7 +65,8 @@ export function updateAppointmentSafely(id: string, data: Partial<Pick<Appointme
         await lockDoctors(tx, [current.doctorId, effective.doctorId]);
         const intervalChanged = effective.date.getTime() !== current.date.getTime() || effective.duration !== current.duration;
         const availabilityChanged = intervalChanged || effective.doctorId !== current.doctorId ||
-            effective.status !== current.status || effective.isOverbooking !== current.isOverbooking;
+            effective.status !== current.status || effective.isOverbooking !== current.isOverbooking ||
+            effective.isVirtual !== current.isVirtual;
         if (availabilityChanged) await checkOverlap(tx, effective, id);
         return tx.appointment.update({
             where: { id },

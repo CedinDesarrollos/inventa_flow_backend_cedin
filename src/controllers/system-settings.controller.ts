@@ -18,6 +18,7 @@ const systemConfigSchema = z.object({
     reminder_window_start: z.string().optional(),
     reminder_window_end: z.string().optional(),
     reminder_hours_before: z.number().optional(),
+    reminders_virtual_enabled: z.boolean().optional(), // recordatorio para citas virtuales
     patient_data_validation_enabled: z.boolean().optional(),
     default_branch_id: z.string().optional() // sucursal que se muestra por defecto; 'all' = todas
 });
@@ -29,6 +30,7 @@ export const getSettings = async (req: Request, res: Response) => {
             'clinicName', 'address', 'phone', 'taxName', 'taxId',
             'invoiceCode', 'timbrado', 'timezone', 'retentionMonths',
             'reminders_enabled', 'reminder_window_start', 'reminder_window_end', 'reminder_hours_before',
+            'reminders_virtual_enabled',
             'patient_data_validation_enabled', // New
             'default_branch_id',
             CLINIC_CONFIG_KEY // Keep for legacy fallback if needed
@@ -52,6 +54,7 @@ export const getSettings = async (req: Request, res: Response) => {
             reminder_window_start: '09:00',
             reminder_window_end: '18:00',
             reminder_hours_before: 24,
+            reminders_virtual_enabled: true,
             patient_data_validation_enabled: false
         };
 
