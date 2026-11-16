@@ -77,6 +77,11 @@ test('real PostgreSQL enforces own-agenda access while preserving authorized ope
         assert.equal(updated.isOverbooking, true);
         assert.equal(updated.endDate.toISOString(), '2026-10-12T19:40:00.000Z');
         await edit({ isOverbooking: false }, 409);
+        // Virtual appointments share fixed slots, so they also skip the overlap check.
+        updated = await edit({ isVirtual: true, isOverbooking: false });
+        assert.equal(updated.isVirtual, true);
+        await edit({ isVirtual: false }, 409);
+        await edit({ isVirtual: false, isOverbooking: true }); // Restore the overbooked state.
         await edit({ duration: 0 }, 400);
         await edit({ duration: Number.MAX_SAFE_INTEGER }, 400);
         await edit({ date: 'invalid' }, 400);

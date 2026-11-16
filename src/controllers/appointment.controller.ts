@@ -19,7 +19,8 @@ const appointmentSchema = z.object({
     status: z.enum(['SCHEDULED', 'CONFIRMED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
     reason: z.string().optional(),
     notes: z.string().optional(),
-    isOverbooking: z.boolean().optional()
+    isOverbooking: z.boolean().optional(),
+    isVirtual: z.boolean().optional()
 });
 
 // Validations
@@ -131,7 +132,8 @@ export const createAppointment = async (req: AuthRequest, res: Response) => {
             ...data,
             date: new Date(data.date),
             status: data.status || 'SCHEDULED',
-            isOverbooking: data.isOverbooking ?? false
+            isOverbooking: data.isOverbooking ?? false,
+            isVirtual: data.isVirtual ?? false
         });
         res.status(201).json(appointment);
     } catch (error) {

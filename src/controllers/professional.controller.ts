@@ -14,6 +14,10 @@ const scheduleItemSchema = z.object({
     active: z.boolean().optional()
 });
 
+const slotTimes = z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora inválida (HH:mm)')).max(6);
+// Horarios fijos de sobreturno y virtual por profesional; vacío = valores por defecto del front.
+const specialSlotsSchema = z.object({ overbooking: slotTimes, virtual: slotTimes });
+
 const professionalSchema = z.object({
     firstName: z.string().min(1, "Nombre requerido"),
     lastName: z.string().min(1, "Apellido requerido"),
@@ -29,6 +33,7 @@ const professionalSchema = z.object({
         scheduleItemSchema,
         z.array(scheduleItemSchema)
     ]).optional(),
+    specialSlots: specialSlotsSchema.optional(),
     createUser: z.boolean().optional(),
     prescriptionHeader: z.object({
         title: z.string().optional(),
@@ -117,6 +122,7 @@ export const createProfessional = async (req: Request, res: Response) => {
                     gender: data.gender,
                     prefix: data.prefix,
                     workingHours: data.workingHours ? JSON.parse(JSON.stringify(data.workingHours)) : undefined,
+                    specialSlots: data.specialSlots ?? undefined,
                     prescriptionHeader: data.prescriptionHeader ? JSON.parse(JSON.stringify(data.prescriptionHeader)) : undefined,
                     isActive: data.status === 'active',
                     acceptedInsurances: data.acceptedInsurances ? {
@@ -171,6 +177,7 @@ export const updateProfessional = async (req: Request, res: Response) => {
                     gender: data.gender,
                     prefix: data.prefix,
                     workingHours: data.workingHours ? JSON.parse(JSON.stringify(data.workingHours)) : undefined,
+                    specialSlots: data.specialSlots ?? undefined,
                     prescriptionHeader: data.prescriptionHeader ? JSON.parse(JSON.stringify(data.prescriptionHeader)) : undefined,
                     isActive: data.status === 'active', // Sync boolean
                     acceptedInsurances: data.acceptedInsurances ? {

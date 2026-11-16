@@ -56,6 +56,7 @@ model Professional {
   color              String
   status             String      @default("active")
   workingHours       Json?       @map("working_hours")
+  specialSlots       Json?       @map("special_slots")
   integrations       Json?
   createdAt          DateTime    @default(now()) @map("created_at")
   updatedAt          DateTime    @updatedAt @map("updated_at")
@@ -221,6 +222,7 @@ model Appointment {
   completedAt        DateTime?             @map("completed_at")
   startedAt          DateTime?             @map("started_at")
   isOverbooking      Boolean               @default(false) @map("is_overbooking")
+  isVirtual          Boolean               @default(false) @map("is_virtual")
   reminders          AppointmentReminder[]
   branch             Branch?               @relation(fields: [branchId], references: [id])
   doctor             User?                 @relation(fields: [doctorId], references: [id])

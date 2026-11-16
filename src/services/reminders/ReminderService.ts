@@ -14,6 +14,7 @@ interface SystemSettings {
     reminder_hours_before: number;
     reminder_window_start: string;
     reminder_window_end: string;
+    reminders_virtual_enabled: boolean;
 }
 
 export class ReminderService {
@@ -29,7 +30,7 @@ export class ReminderService {
         const settings = await prisma.systemSetting.findMany({
             where: {
                 key: {
-                    in: ['timezone', 'reminder_hours_before', 'reminder_window_start', 'reminder_window_end', 'CLINIC_CONFIG']
+                    in: ['timezone', 'reminder_hours_before', 'reminder_window_start', 'reminder_window_end', 'reminders_virtual_enabled', 'CLINIC_CONFIG']
                 }
             }
         });
@@ -50,7 +51,8 @@ export class ReminderService {
             timezone: settingsMap.timezone || legacyConfig.timezone || 'America/Asuncion',
             reminder_hours_before: settingsMap.reminder_hours_before || legacyConfig.reminder_hours_before || 24,
             reminder_window_start: settingsMap.reminder_window_start || legacyConfig.reminder_window_start || '09:00',
-            reminder_window_end: settingsMap.reminder_window_end || legacyConfig.reminder_window_end || '18:00'
+            reminder_window_end: settingsMap.reminder_window_end || legacyConfig.reminder_window_end || '18:00',
+            reminders_virtual_enabled: (settingsMap.reminders_virtual_enabled ?? legacyConfig.reminders_virtual_enabled) !== false
         };
     }
 
@@ -78,6 +80,11 @@ export class ReminderService {
 
         const currentHour = now.hour; // Use local hour to decide strategy
 
+        // Sobreturnos never get reminders; virtual ones only if enabled in Configuración.
+        const typeFilter = settings.reminders_virtual_enabled
+            ? { isOverbooking: false }
+            : { isOverbooking: false, isVirtual: false };
+
         // STRATEGY 1: BATCH AT 6PM - Send ALL tomorrow's appointments
         if (currentHour === 18) {
             console.log('🎯 Running BATCH mode: sending all reminders for tomorrow');
@@ -94,6 +101,7 @@ export class ReminderService {
                     status: {
                         in: ['SCHEDULED', 'CONFIRMED']
                     },
+                    ...typeFilter,
                     reminders: {
                         none: {
                             status: {
@@ -130,6 +138,7 @@ export class ReminderService {
                 status: {
                     in: ['SCHEDULED', 'CONFIRMED']
                 },
+                ...typeFilter,
                 reminders: {
                     none: {
                         status: {
