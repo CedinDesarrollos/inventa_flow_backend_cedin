@@ -94,39 +94,41 @@ const siteDaySchema = z.object({
     windows: z.array(z.object({ branchId: z.string().nullish(), start: time, end: time })).max(12)
 });
 
-/** Reemplaza el horario particular de una fecha. windows vacío = vuelve al horario base. */
+/** Reemplaza el horario particular de una fecha. windows vacío = vuelve al horario base.
+ *  Secretaría solo solicita: sus franjas quedan PENDING y reemplazan su solicitud anterior de esa fecha. */
 export const replaceSiteDay = async (req: AuthRequest, res: Response) => {
     try {
         const body = siteDaySchema.parse(req.body);
         const { access } = await accessTo(req, body.professionalId);
-        if (access !== 'manage') throw new HttpError(403, 'Solo el profesional o un administrador pueden cargar horarios particulares');
+        if (access !== 'manage' && !body.windows.length) {
+            throw new HttpError(403, 'Solo el profesional o un administrador pueden volver un día al horario habitual');
+        }
         const sorted = [...body.windows].sort((a, b) => a.start.localeCompare(b.start));
         sorted.forEach((w, i) => {
             if (toMinutes(w.start) >= toMinutes(w.end)) throw new HttpError(400, `La franja ${w.start}-${w.end} termina antes de empezar`);
             if (i > 0 && toMinutes(w.start) < toMinutes(sorted[i - 1].end)) throw new HttpError(400, 'Las franjas no pueden superponerse');
         });
+        const status = access === 'manage' ? 'APPROVED' : 'PENDING';
+        const sameDay = { professionalId: body.professionalId, kind: 'SITE', dateFrom: body.date, dateTo: body.date };
         await prisma.$transaction(async tx => {
             // Serializa reemplazos concurrentes del mismo profesional (evita sumar dos juegos de franjas).
             await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'site-day:' + body.professionalId}, 0))`;
-            await tx.scheduleException.deleteMany({
-                where: { professionalId: body.professionalId, kind: 'SITE', dateFrom: body.date, dateTo: body.date }
-            });
+            // Quien gestiona reemplaza todo el día (incluida una solicitud pendiente); secretaría solo su solicitud.
+            await tx.scheduleException.deleteMany({ where: access === 'manage' ? sameDay : { ...sameDay, status: 'PENDING' } });
             await tx.scheduleException.createMany({
                 data: sorted.map(w => ({
-                    professionalId: body.professionalId,
-                    kind: 'SITE',
-                    status: 'APPROVED',
-                    dateFrom: body.date,
-                    dateTo: body.date,
+                    ...sameDay,
+                    status,
                     startTime: w.start,
                     endTime: w.end,
                     branchId: w.branchId || null,
-                    createdById: req.user!.userId
+                    createdById: req.user!.userId,
+                    ...(access === 'manage' && { reviewedById: req.user!.userId, reviewedAt: new Date() })
                 }))
             });
         });
         const saved = await prisma.scheduleException.findMany({
-            where: { professionalId: body.professionalId, kind: 'SITE', dateFrom: body.date, dateTo: body.date },
+            where: { ...sameDay, status },
             include: exceptionInclude,
             orderBy: { startTime: 'asc' }
         });
@@ -180,18 +182,34 @@ export const reviewException = async (req: AuthRequest, res: Response) => {
     try {
         const body = reviewSchema.parse(req.body);
         const current = await prisma.scheduleException.findUnique({ where: { id: String(req.params.id) } });
-        if (!current) throw new HttpError(404, 'Ausencia no encontrada');
+        if (!current) throw new HttpError(404, 'Solicitud no encontrada');
         if (current.status !== 'PENDING') throw new HttpError(409, 'La solicitud ya fue revisada');
         const { professional, access } = await accessTo(req, current.professionalId);
-        if (access !== 'manage') throw new HttpError(403, 'Solo el profesional o un administrador pueden aprobar ausencias');
+        if (access !== 'manage') throw new HttpError(403, 'Solo el profesional o un administrador pueden aprobar solicitudes');
+        const review = {
+            status: body.approve ? 'APPROVED' : 'REJECTED',
+            reviewedById: req.user!.userId,
+            reviewedAt: new Date(),
+            reviewNote: body.note || null
+        };
+        if (current.kind === 'SITE') {
+            // Un día particular se revisa completo: todas sus franjas pendientes juntas.
+            const sameDay = { professionalId: current.professionalId, kind: 'SITE', dateFrom: current.dateFrom, dateTo: current.dateTo };
+            await prisma.$transaction(async tx => {
+                await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'site-day:' + current.professionalId}, 0))`;
+                // Revalida con el lock tomado: otra revisión o una nueva solicitud pudo cambiar el día mientras tanto.
+                const locked = await tx.scheduleException.findUnique({ where: { id: current.id } });
+                if (locked?.status !== 'PENDING') throw new HttpError(409, 'La solicitud ya fue revisada o reemplazada');
+                // Aprobar reemplaza el día: se borra el horario particular vigente de esa fecha.
+                if (body.approve) await tx.scheduleException.deleteMany({ where: { ...sameDay, status: { not: 'PENDING' } } });
+                await tx.scheduleException.updateMany({ where: { ...sameDay, status: 'PENDING' }, data: review });
+            });
+            const exception = await prisma.scheduleException.findUnique({ where: { id: current.id }, include: exceptionInclude });
+            return res.json({ exception, affected: [] });
+        }
         const exception = await prisma.scheduleException.update({
             where: { id: current.id },
-            data: {
-                status: body.approve ? 'APPROVED' : 'REJECTED',
-                reviewedById: req.user!.userId,
-                reviewedAt: new Date(),
-                reviewNote: body.note || null
-            },
+            data: review,
             include: exceptionInclude
         });
         const affected = body.approve ? await affectedBy(professional.userId, exception) : [];
@@ -210,7 +228,14 @@ export const deleteException = async (req: AuthRequest, res: Response) => {
         if (access !== 'manage' && !(current.status === 'PENDING' && current.createdById === req.user?.userId)) {
             throw new HttpError(403, 'No tiene permiso para eliminar este registro');
         }
-        await prisma.scheduleException.delete({ where: { id: current.id } });
+        // Una solicitud de día particular se retira completa (todas sus franjas pendientes).
+        if (current.kind === 'SITE' && current.status === 'PENDING') {
+            await prisma.scheduleException.deleteMany({
+                where: { professionalId: current.professionalId, kind: 'SITE', status: 'PENDING', dateFrom: current.dateFrom, dateTo: current.dateTo }
+            });
+        } else {
+            await prisma.scheduleException.delete({ where: { id: current.id } });
+        }
         res.status(204).end();
     } catch (error) {
         fail(res, error);
