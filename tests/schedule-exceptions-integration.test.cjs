@@ -41,7 +41,8 @@ test('schedule layers: base per branch, particular days, OOO requests/approval a
  assert.equal(pend.status,200);assert.deepEqual(pend.body.map(e=>[e.status,e.startTime]),[['PENDING','15:00']]);
  assert.deepEqual(await slots(doc.id,'2026-11-19'),[]);
  assert.equal((await call(tS,'PATCH',`/schedule-exceptions/${pend.body[0].id}/review`,{approve:true})).status,403);
- assert.equal((await call(tD,'PATCH',`/schedule-exceptions/${pend.body[0].id}/review`,{approve:true})).status,200);
+ const [r1,r2]=await Promise.all([1,2].map(()=>call(tD,'PATCH',`/schedule-exceptions/${pend.body[0].id}/review`,{approve:true})));
+ assert.deepEqual([r1.status,r2.status].sort(),[200,409]);
  assert.equal((await slots(doc.id,'2026-11-19'))[0],'2026-11-19T15:00:00.000Z');
  assert.equal((await call(tD,'PUT','/schedule-exceptions/site-day',{professionalId:p2.id,date:'2026-11-19',windows:[]})).status,403);
  assert.equal((await call(tD,'PUT','/schedule-exceptions/site-day',{professionalId:p.id,date:'2026-11-19',windows:[{start:'08:00',end:'12:00'},{start:'11:00',end:'13:00'}]})).status,400);

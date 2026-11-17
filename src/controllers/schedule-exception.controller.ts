@@ -197,6 +197,9 @@ export const reviewException = async (req: AuthRequest, res: Response) => {
             const sameDay = { professionalId: current.professionalId, kind: 'SITE', dateFrom: current.dateFrom, dateTo: current.dateTo };
             await prisma.$transaction(async tx => {
                 await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'site-day:' + current.professionalId}, 0))`;
+                // Revalida con el lock tomado: otra revisión o una nueva solicitud pudo cambiar el día mientras tanto.
+                const locked = await tx.scheduleException.findUnique({ where: { id: current.id } });
+                if (locked?.status !== 'PENDING') throw new HttpError(409, 'La solicitud ya fue revisada o reemplazada');
                 // Aprobar reemplaza el día: se borra el horario particular vigente de esa fecha.
                 if (body.approve) await tx.scheduleException.deleteMany({ where: { ...sameDay, status: { not: 'PENDING' } } });
                 await tx.scheduleException.updateMany({ where: { ...sameDay, status: 'PENDING' }, data: review });
